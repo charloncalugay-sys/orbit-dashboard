@@ -465,8 +465,17 @@ if ($appTouched.Count -eq 0) {
 
 # ════════════════════════════════════════════════════════════════
 # STEP 5 — Git commit + push -> GitHub Pages auto-publishes
-# Commits orbit-data.js, orbit-auth.js, and any other staged
-# changes. Skips commit if nothing has changed since last push.
+#
+# Stages ALL tracked deployment files that have changed:
+#   orbit-data.js   orbit-auth.js          (generated on every refresh)
+#   ORBIT.html      orbit-app.js  orbit.css (committed only when edited)
+#
+# Commit message reflects what actually changed:
+#   "data: refresh …"            — data files only
+#   "data + code: refresh …"     — data files + one or more app files
+#   "code: …"                    — app files only (manual push scenario)
+#
+# If nothing has changed since the last commit, step is skipped silently.
 # ════════════════════════════════════════════════════════════════
 Log "STEP 5: Publishing to GitHub Pages via git..." Cyan
 
@@ -474,15 +483,34 @@ if (-not (Test-Path $GIT)) {
     Log "  [SKIP] git not found at: $GIT" Yellow
     Log "  Install Git for Windows and re-run to enable auto-publish." Yellow
 } else {
-    # Stage the two generated deployment artifacts + .gitignore if changed
-    & $GIT -C $DASH_DIR add orbit-data.js orbit-auth.js 2>&1 | ForEach-Object { Log "  git add: $_" Gray }
+    # Stage all deployment artifacts (git ignores files that haven't changed)
+    $filesToStage = @(
+        "orbit-data.js",
+        "orbit-auth.js",
+        "ORBIT.html",
+        "orbit-app.js",
+        "orbit.css"
+    )
+    & $GIT -C $DASH_DIR add @filesToStage 2>&1 | ForEach-Object { if ($_) { Log "  git: $_" Gray } }
 
-    # Check if there is anything to commit
-    $gitStatus = & $GIT -C $DASH_DIR status --porcelain 2>&1
-    if ($gitStatus) {
-        # Build commit message with data summary
+    # Determine what is actually staged to build an accurate commit message
+    $staged     = & $GIT -C $DASH_DIR diff --name-only --cached 2>&1
+    $dataFiles  = @("orbit-data.js","orbit-auth.js")
+    $codeFiles  = @("ORBIT.html","orbit-app.js","orbit.css")
+    $hasData    = ($staged | Where-Object { $dataFiles -contains $_ }).Count -gt 0
+    $hasCode    = ($staged | Where-Object { $codeFiles -contains $_ }).Count -gt 0
+    $codeList   = ($staged | Where-Object { $codeFiles -contains $_ }) -join ", "
+
+    if ($staged) {
         $dataDate  = if ($maxDate) { $maxDate } else { (Get-Date -Format 'yyyy-MM-dd') }
-        $commitMsg = "data: refresh $dataDate ($newRows prod rows)"
+
+        if ($hasData -and $hasCode) {
+            $commitMsg = "data + code: refresh $dataDate ($newRows prod rows) [$codeList]"
+        } elseif ($hasData) {
+            $commitMsg = "data: refresh $dataDate ($newRows prod rows)"
+        } else {
+            $commitMsg = "code: publish $dataDate [$codeList]"
+        }
 
         & $GIT -C $DASH_DIR commit -m $commitMsg 2>&1 | ForEach-Object { Log "  $_" Gray }
 
