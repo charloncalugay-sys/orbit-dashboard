@@ -1,13 +1,12 @@
 # ORBIT Dashboard — git ignore
 
-# ── Generated data files (rebuilt by Refresh_ORBIT.ps1, contain employee PII) ──
-orbit-data.js
-orbit-auth.js
-
 # ── Raw source data (contain employee names and performance metrics) ──
-prod_raw.csv
-qa_raw.csv
-assoc_raw.csv
+# These are rebuilt on every refresh from the Excel workbook.
+# They are NEVER committed — orbit-data.js and orbit-auth.js are the
+# sanitised deployment artifacts that get committed instead.
+_system/prod_raw.csv
+_system/qa_raw.csv
+_system/assoc_raw.csv
 *.xlsx
 *.xls
 
@@ -17,7 +16,6 @@ orbit-keys.json
 .env
 
 # ── Local VCS artefacts (ORBIT's own backup/versioning system) ──
-# These are operational snapshots, not source history.
 _system/BACKUP/
 _system/.versions/
 

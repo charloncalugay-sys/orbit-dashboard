@@ -1,41 +1,45 @@
 # ============================================================
-# PROJECT ORBIT - One-Click Refresh
+# PROJECT ORBIT - One-Click Refresh + GitHub Publish
 # Steps:
 #   0. Timestamped backup: ORBIT.html / orbit-app.js / orbit.css
 #      -> ORBIT DASH\_system\BACKUP\YYYYMMDD_HHMM\
 #   1. Refresh Excel data model (RefreshAll)
 #   2. Export DATA_EXTRACT -> prod_raw.csv / qa_raw.csv / assoc_raw.csv
+#   2.5. Export leadership roster -> orbit-auth.js
 #   3. Rebuild orbit-data.js
 #   4. Verify deployment folder + confirm app files untouched
-#   5. Open (or reload) ORBIT.html in the default browser
+#   5. Git commit + push -> GitHub Pages publishes automatically
+#   6. Open (or reload) ORBIT.html in the default browser
 #
 # GUARANTEE: this script writes ONLY data files
-#   (orbit-data.js, prod_raw.csv, qa_raw.csv, assoc_raw.csv).
+#   (orbit-data.js, orbit-auth.js, prod_raw.csv, qa_raw.csv, assoc_raw.csv).
 # It NEVER writes or overwrites ORBIT.html / orbit-app.js / orbit.css.
 #
-# FOLDER LAYOUT (after SharePoint cleanup):
-#   ORBIT DASH\              -- user-visible root (SharePoint library)
+# FOLDER LAYOUT:
+#   ORBIT DASH\              -- git repository root (GitHub Pages source)
 #     ORBIT.html             -- the application
-#     orbit-app.js, orbit.css, orbit-auth.js, orbit-data.js, chart.umd.min.js
+#     orbit-app.js, orbit.css, chart.umd.min.js
+#     orbit-data.js          -- generated; committed on every refresh
+#     orbit-auth.js          -- generated; committed on every refresh
 #     assets\logos\          -- logo images
-#     _system\               -- admin-only; not visible to end users
+#     _system\               -- admin-only scripts + raw data (gitignored data)
 #       Refresh_ORBIT.ps1    -- this script
-#       BACKUP\              -- timestamped app-file backups
-#       .versions\           -- VCS snapshots (orbit_vcs.py)
-#       prod_raw.csv, qa_raw.csv, assoc_raw.csv
+#       BACKUP\              -- timestamped app-file backups (gitignored)
+#       .versions\           -- VCS snapshots (gitignored)
+#       prod_raw.csv, qa_raw.csv, assoc_raw.csv (gitignored)
 # ============================================================
 
 $WORKBOOK  = "C:\Users\AL70683\OneDrive - Elevance Health\IGNITE PROJECTS\ORBIT\PI DI Dashboard.xlsx"
 $DASH_DIR  = "C:\Users\AL70683\OneDrive - Elevance Health\IGNITE PROJECTS\ORBIT\ORBIT DASH"
 $SYS_DIR   = "$DASH_DIR\_system"   # backend/admin files - not exposed to end users
-$ONEDRIVE  = $DASH_DIR   # single deployment folder - no separate sync step needed
 $HTML_FILE = "$DASH_DIR\ORBIT.html"
 
+# ── Git executable (GitHub Desktop ships its own copy) ────────────────────────
+$GIT = "C:\Users\AL70683\AppData\Local\Programs\Git\bin\git.exe"
+
 # ── Canonical live URL ────────────────────────────────────────────────────────
-# This is the single URL all users should bookmark. It serves ORBIT.html
-# directly from OneDrive/SharePoint — no download, no local copy, always live.
-# Share this URL; never share a ZIP or local file path.
-$ORBIT_URL = "https://mysite.wellpoint.com/personal/al70683_ad_wellpoint_com/Documents/IGNITE%20PROJECTS/ORBIT/ORBIT%20DASH/ORBIT.html?web=1"
+# GitHub Pages URL — this is what all users bookmark.
+$ORBIT_URL = "https://charloncalugay-sys.github.io/orbit-dashboard/ORBIT.html"
 # ─────────────────────────────────────────────────────────────────────────────
 
 $T0 = Get-Date
@@ -460,9 +464,50 @@ if ($appTouched.Count -eq 0) {
 }
 
 # ════════════════════════════════════════════════════════════════
-# STEP 5 — Open / reload ORBIT.html in the default browser
+# STEP 5 — Git commit + push -> GitHub Pages auto-publishes
+# Commits orbit-data.js, orbit-auth.js, and any other staged
+# changes. Skips commit if nothing has changed since last push.
 # ════════════════════════════════════════════════════════════════
-Log "STEP 5: Opening ORBIT.html in browser..." Cyan
+Log "STEP 5: Publishing to GitHub Pages via git..." Cyan
+
+if (-not (Test-Path $GIT)) {
+    Log "  [SKIP] git not found at: $GIT" Yellow
+    Log "  Install Git for Windows and re-run to enable auto-publish." Yellow
+} else {
+    # Stage the two generated deployment artifacts + .gitignore if changed
+    & $GIT -C $DASH_DIR add orbit-data.js orbit-auth.js 2>&1 | ForEach-Object { Log "  git add: $_" Gray }
+
+    # Check if there is anything to commit
+    $gitStatus = & $GIT -C $DASH_DIR status --porcelain 2>&1
+    if ($gitStatus) {
+        # Build commit message with data summary
+        $dataDate  = if ($maxDate) { $maxDate } else { (Get-Date -Format 'yyyy-MM-dd') }
+        $commitMsg = "data: refresh $dataDate ($newRows prod rows)"
+
+        & $GIT -C $DASH_DIR commit -m $commitMsg 2>&1 | ForEach-Object { Log "  $_" Gray }
+
+        if ($LASTEXITCODE -eq 0) {
+            Log "  Committed: $commitMsg" Green
+            & $GIT -C $DASH_DIR push origin main 2>&1 | ForEach-Object { Log "  $_" Gray }
+            if ($LASTEXITCODE -eq 0) {
+                Log "  Pushed to GitHub. Pages will update within ~60 seconds." Green
+                Log "  Live URL: $ORBIT_URL" Cyan
+            } else {
+                Log "  [WARN] Push failed. Changes committed locally; push manually." Yellow
+                Log "  Run: git -C `"$DASH_DIR`" push origin main" Yellow
+            }
+        } else {
+            Log "  [WARN] git commit failed. Check output above." Yellow
+        }
+    } else {
+        Log "  Nothing changed since last commit — skipping." Gray
+    }
+}
+
+# ════════════════════════════════════════════════════════════════
+# STEP 6 — Open / reload ORBIT.html in the default browser
+# ════════════════════════════════════════════════════════════════
+Log "STEP 6: Opening ORBIT in browser..." Cyan
 
 # If Edge has ORBIT open, send F5 to reload; otherwise open fresh
 $edgeProc = Get-Process msedge -ErrorAction SilentlyContinue |
@@ -477,8 +522,8 @@ if ($edgeProc) {
     [System.Windows.Forms.SendKeys]::SendWait("{F5}")
     Log "  ORBIT tab reloaded (F5 sent to Edge)." Green
 } else {
-    Start-Process $HTML_FILE
-    Log "  ORBIT.html opened in default browser." Green
+    Start-Process $ORBIT_URL
+    Log "  ORBIT opened in default browser (GitHub Pages URL)." Green
 }
 
 # ════════════════════════════════════════════════════════════════
@@ -488,15 +533,15 @@ $total = [int]((Get-Date) - $T0).TotalSeconds
 $delta = $newRows - $prevRows
 Write-Host ""
 Write-Host "==========================================================" -ForegroundColor Green
-Write-Host "  ORBIT REFRESH COMPLETE" -ForegroundColor Green
+Write-Host "  ORBIT REFRESH + PUBLISH COMPLETE" -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Green
 Write-Host ("  Max date   : $maxDate  (serial $maxSerial)") -ForegroundColor Green
 Write-Host ("  D_PROD rows: $newRows  (+$delta new)") -ForegroundColor Green
 Write-Host ("  Duration   : ${total}s") -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "  DATA IS NOW LIVE. Users will see updated data on next page reload." -ForegroundColor Cyan
+Write-Host "  DATA IS LIVE on GitHub Pages (~60 s propagation)." -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  Live URL (share this - never share a ZIP or local file):" -ForegroundColor Yellow
+Write-Host "  Live URL:" -ForegroundColor Yellow
 Write-Host "  $ORBIT_URL" -ForegroundColor White
 Write-Host ""
