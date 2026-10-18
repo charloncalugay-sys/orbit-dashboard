@@ -94,6 +94,10 @@ img,svg { display: block; max-width: 100%; }
   display: flex; align-items: center; justify-content: center;
 }
 .orbit-header__svg { width: 52px; height: 52px; display: block; }
+.orbit-header__img {
+  width: 52px; height: 52px; display: block;
+  object-fit: contain;   /* preserve aspect ratio — image is never stretched or cropped */
+}
 
 /* Vertical hairline divider between icon and text */
 .orbit-header__divider {
@@ -509,6 +513,7 @@ img,svg { display: block; max-width: 100%; }
   .orbit-filters__updated   { display: none; }
   .orbit-header__carelon    { display: none; }
   .orbit-header__svg        { width: 40px; height: 40px; }
+  .orbit-header__img        { width: 40px; height: 40px; }
   .orbit-header__logo       { width: 40px; height: 40px; }
   .orbit-content            { padding: 12px 12px 24px; }
   .orbit-header             { padding: 0 12px; }
