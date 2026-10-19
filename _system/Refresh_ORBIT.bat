@@ -17,6 +17,15 @@ echo.
 echo  Starting... (Excel will open briefly, then close)
 echo.
 
+rem ── Pre-flight gate: Refresh_ORBIT.ps1 must parse with 0 errors ──
+powershell.exe -ExecutionPolicy Bypass -NoProfile -File "%~dp0Validate_ORBIT.ps1" -Path "%~dp0Refresh_ORBIT.ps1"
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo  [ABORT] Refresh_ORBIT.ps1 failed validation. Fix the script before running.
+    pause
+    exit /b 1
+)
+
 powershell.exe -ExecutionPolicy Bypass -NoProfile -File "%~dp0Refresh_ORBIT.ps1"
 
 if %ERRORLEVEL% NEQ 0 (
