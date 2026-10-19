@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # PROJECT ORBIT - One-Click Refresh + GitHub Publish
 # Steps:
 #   0. Timestamped backup: ORBIT.html / orbit-app.js / orbit.css
@@ -528,7 +528,7 @@ if (-not (Test-Path $GIT)) {
             Log "  [WARN] git commit failed. Check output above." Yellow
         }
     } else {
-        Log "  Nothing changed since last commit — skipping." Gray
+        Log "  Nothing changed since last commit - skipping." Gray
     }
 }
 
