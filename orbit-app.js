@@ -4508,7 +4508,7 @@ const FN = (() => {
     'non-cob':           'NON COB',
     'prepay':            'Prepay'
   };
-  const DEFAULT_FN = 'dispute-triage';
+  const DEFAULT_FN = 'disputes-intakes';
 
   // Bars hidden while a non-live function is selected
   const HIDE_ON_UC = '.orbit-filters, .orbit-page-nav';
