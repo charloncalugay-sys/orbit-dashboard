@@ -33,3 +33,6 @@ desktop.ini
 *.tmp
 *.bak
 ~$*
+
+# Vercel deploy hook URL (secret-ish, local only)
+_system/vercel_hook.txt
