@@ -2069,6 +2069,22 @@ const LP = (() => {
   const REC_QA    = RULE.REC_QA;     // recognition QA — provisional
   const LOB       = 'Dispute & Intake';   // current LOB — expand when new LOBs onboard
 
+  /* ── Evaluation window: completed months only ────────────────
+     The in-progress calendar month is excluded from ALL
+     qualification logic (PIP, Recognition, Dual/Prod/QA Fail,
+     consecutive-month checks, Executive Alerts). If data lags a
+     month behind, that month still counts — it is closed.       */
+  const NOW     = new Date();
+  const CUR_YM  = `${NOW.getFullYear()}-${String(NOW.getMonth() + 1).padStart(2, '0')}`;
+  function closedRows(rows) { return rows.filter(r => r.ym !== CUR_YM); }
+  function evalWindowLabel() {
+    const yms = [...new Set(cachedRows().map(r => r.ym))]
+      .filter(y => y !== CUR_YM).sort();
+    if (!yms.length) return '';
+    const latest = yms[yms.length - 1];
+    return `Evaluating completed months through ${fmtYM(latest)} — ${fmtYM(CUR_YM)} in progress, excluded`;
+  }
+
   /* ── Filter state + computed data cache ──────────────────── */
   const S = {
     pipReason: 'all',  pipMgr: 'all',  pipSearch: '',
@@ -2146,6 +2162,7 @@ const LP = (() => {
   }
 
   function computePIP(rows) {
+    rows = closedRows(rows);   // completed months only
     const out = [];
     Object.entries(byAssoc(rows)).forEach(([a, list]) => {
       const m = list[list.length - 1].m;
@@ -2209,6 +2226,7 @@ const LP = (() => {
   }
 
   function computeRecognition(rows) {
+    rows = closedRows(rows);   // completed months only
     const out = [];
     Object.entries(byAssoc(rows)).forEach(([a, list]) => {
       const m = list[list.length - 1].m;
@@ -2706,6 +2724,7 @@ Powered by Payment Integrity IGNITE
 
   /* ── Executive Alerts ────────────────────────────────────── */
   function computeAlerts(rows, pip, rec, scorecard) {
+    rows = closedRows(rows);   // completed months only
     const alerts = [];
 
     // HIGH: dual-fail associates need immediate review
@@ -3356,6 +3375,9 @@ Powered by Payment Integrity IGNITE
     const scorecard = computeScorecard(rows, DATA.pip, DATA.rec);
     const alerts    = computeAlerts(rows, DATA.pip, DATA.rec, scorecard);
     renderRules();
+    // Show which months qualified (in-progress month excluded)
+    const wl = evalWindowLabel();
+    document.querySelectorAll('.lp-eval-window').forEach(el => { el.textContent = wl; });
     if (!matrixInit) { initMatrix(); matrixInit = true; }
     const mgrBelow = scorecard.filter(g =>
       (g.prodPct != null && g.prodPct < PROD_PASS) ||

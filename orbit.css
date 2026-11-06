@@ -1350,6 +1350,14 @@ img,svg { display: block; max-width: 100%; }
   color: var(--text-muted); letter-spacing: .03em;
 }
 
+/* Evaluation-window caption: which completed months qualified */
+.lp-eval-window {
+  font: 600 9.5px/1.4 var(--font-ui, 'Inter', sans-serif);
+  letter-spacing: .06em; text-transform: uppercase;
+  color: var(--turquoise);
+  margin-left: auto;
+}
+
 /* Watchlist table tweaks */
 .lp-table .lp-result { white-space: normal; line-height: 1.7; }
 .lp-empty {
