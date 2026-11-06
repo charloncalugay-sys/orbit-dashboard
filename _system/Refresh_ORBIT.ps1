@@ -29,10 +29,32 @@
 #       prod_raw.csv, qa_raw.csv, assoc_raw.csv (gitignored)
 # ============================================================
 
+# ── SOURCE OF TRUTH — Folder A ──────────────────────────────────────────────
+# The ONLY place Refresh_ORBIT may run. Folder B (SharePoint team-site sync
+# under T-Payment Integrity\Cha\ORBIT) is a read-only mirror that receives
+# published artifacts via git pull after every successful push (see STEP 5).
 $WORKBOOK  = "C:\Users\AL70683\OneDrive - Elevance Health\IGNITE PROJECTS\ORBIT\PI DI Dashboard.xlsx"
 $DASH_DIR  = "C:\Users\AL70683\OneDrive - Elevance Health\IGNITE PROJECTS\ORBIT\ORBIT DASH"
 $SYS_DIR   = "$DASH_DIR\_system"   # backend/admin files - not exposed to end users
 $HTML_FILE = "$DASH_DIR\ORBIT.html"
+
+# Mirror clone (Folder B) — pulled after each push; NEVER refreshed locally.
+$MIRROR_ORBIT = "C:\Users\AL70683\Elevance Health\T-Payment Integrity 2025 - 2026 - IGNITE\Cha\ORBIT"
+$MIRROR_DASH  = "$MIRROR_ORBIT\ORBIT DASH"
+$MIRROR_ROOT_FILES = @(
+    "ORBIT_Leadership.xlsx",
+    "PI DI Dashboard.xlsx",
+    "Refresh_ORBIT.bat",
+    "Refresh_ORBIT.ps1"
+)
+
+# Safety guard: refuse to run inside the mirror copy.
+if ($PSScriptRoot -like "*T-Payment Integrity*") {
+    Write-Host "[ABORT] This ORBIT folder is the SharePoint MIRROR copy." -ForegroundColor Red
+    Write-Host "        Run Refresh_ORBIT.bat from the source-of-truth folder:" -ForegroundColor Red
+    Write-Host "        ...\IGNITE PROJECTS\ORBIT\ORBIT DASH\_system\" -ForegroundColor Yellow
+    exit 1
+}
 
 # ── Git executable (GitHub Desktop ships its own copy) ────────────────────────
 $GIT = "C:\Users\AL70683\AppData\Local\Programs\Git\bin\git.exe"
@@ -520,6 +542,43 @@ if (-not (Test-Path $GIT)) {
             if ($LASTEXITCODE -eq 0) {
                 Log "  Pushed to GitHub. Pages will update within ~60 seconds." Green
                 Log "  Live URL: $ORBIT_URL" Cyan
+
+                # ── STEP 5b: mirror to SharePoint copy (Folder B) ─────────────
+                # B is a read-only clone. git pull --ff-only updates it to
+                # origin/main and REFUSES if B has diverged — that refusal is
+                # the drift detector (means someone ran refresh inside B).
+                Log "  Syncing SharePoint mirror (Folder B)..." Cyan
+                if (Test-Path "$MIRROR_DASH\.git") {
+                    & $GIT -C $MIRROR_DASH fetch origin 2>&1 | ForEach-Object {
+                        if ($_) { Log "    git: $_" Gray }
+                    }
+                    & $GIT -C $MIRROR_DASH pull --ff-only origin main 2>&1 |
+                        ForEach-Object { if ($_) { Log "    git: $_" Gray } }
+                    if ($LASTEXITCODE -eq 0) {
+                        Log "  Mirror updated to origin/main." Green
+                    } else {
+                        Log "  [DRIFT] Mirror pull failed (non-fast-forward)." Red
+                        Log "  Folder B has diverged - someone committed inside it." Red
+                        Log "  Inspect: git -C `"$MIRROR_DASH`" log --oneline -5" Yellow
+                    }
+                } else {
+                    Log "  [SKIP] Mirror clone not found at $MIRROR_DASH" Yellow
+                }
+
+                # Root-level source files (workbooks + scripts) - copy A -> B
+                # only when the hash differs. Keeps the mirror inputs aligned.
+                foreach ($rf in $MIRROR_ROOT_FILES) {
+                    $pa = Join-Path (Split-Path $DASH_DIR -Parent) $rf
+                    $pb = Join-Path $MIRROR_ORBIT $rf
+                    if ((Test-Path $pa) -and (Test-Path $MIRROR_ORBIT)) {
+                        $need = -not (Test-Path $pb) -or
+                                ((Get-FileHash $pa).Hash -ne (Get-FileHash $pb).Hash)
+                        if ($need) {
+                            Copy-Item $pa $pb -Force
+                            Log "    Mirrored root file: $rf" Gray
+                        }
+                    }
+                }
             } else {
                 Log "  [WARN] Push failed. Changes committed locally; push manually." Yellow
                 Log "  Run: git -C `"$DASH_DIR`" push origin main" Yellow
