@@ -8,8 +8,10 @@
 #   2.5. Export leadership roster -> orbit-auth.js
 #   3. Rebuild orbit-data.js
 #   4. Verify deployment folder + confirm app files untouched
-#   5. Git commit + push -> GitHub Pages publishes automatically
-#   6. Open (or reload) ORBIT.html in the default browser
+#   5. Git commit + push -> Vercel deploys orbit-two-silk.vercel.app
+#      5b. git pull --ff-only syncs the SharePoint mirror clone (Folder B)
+#      5c. optional Vercel deploy-hook + version.json freshness poll
+#   6. Open (or reload) the production URL in the default browser
 #
 # GUARANTEE: this script writes ONLY data files
 #   (orbit-data.js, orbit-auth.js, prod_raw.csv, qa_raw.csv, assoc_raw.csv).
@@ -60,8 +62,18 @@ if ($PSScriptRoot -like "*T-Payment Integrity*") {
 $GIT = "C:\Users\AL70683\AppData\Local\Programs\Git\bin\git.exe"
 
 # ── Canonical live URL ────────────────────────────────────────────────────────
-# GitHub Pages URL — this is what all users bookmark.
-$ORBIT_URL = "https://charloncalugay-sys.github.io/orbit-dashboard/ORBIT.html"
+# Official production endpoint (Vercel).
+$ORBIT_URL   = "https://orbit-two-silk.vercel.app/ORBIT.html"
+$ORBIT_BASE  = "https://orbit-two-silk.vercel.app"
+# GitHub Pages remains live as an automatic fallback mirror.
+$PAGES_URL   = "https://charloncalugay-sys.github.io/orbit-dashboard/ORBIT.html"
+#
+# OPTIONAL: Vercel Deploy Hook. Create one in Vercel project
+# Settings -> Git -> Deploy Hooks, then put the URL in
+# _system\vercel_hook.txt (NOT committed). If present, every refresh
+# fires the hook directly - deployment no longer depends on the
+# Git->Vercel integration staying healthy.
+$VERCEL_HOOK_FILE = "$DASH_DIR\_system\vercel_hook.txt"
 # ─────────────────────────────────────────────────────────────────────────────
 
 $T0 = Get-Date
@@ -499,14 +511,25 @@ if ($appTouched.Count -eq 0) {
 #
 # If nothing has changed since the last commit, step is skipped silently.
 # ════════════════════════════════════════════════════════════════
-Log "STEP 5: Publishing to GitHub Pages via git..." Cyan
+Log "STEP 5: Publishing via git -> GitHub -> Vercel..." Cyan
 
 if (-not (Test-Path $GIT)) {
     Log "  [SKIP] git not found at: $GIT" Yellow
     Log "  Install Git for Windows and re-run to enable auto-publish." Yellow
 } else {
+    # Deploy beacon: version.json lets us verify the live deployment
+    # actually picked up this refresh (staleness detector).
+    $refreshStamp = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ss")
+    $verJson = @{
+        refreshed = $refreshStamp
+        prodRows  = $newRows
+        maxDate   = $maxDate
+    } | ConvertTo-Json -Compress
+    [System.IO.File]::WriteAllText("$DASH_DIR\version.json", $verJson, [System.Text.Encoding]::UTF8)
+
     # Stage all deployment artifacts (git ignores files that haven't changed)
     $filesToStage = @(
+        "version.json",
         "orbit-data.js",
         "orbit-auth.js",
         "ORBIT.html",
@@ -579,6 +602,43 @@ if (-not (Test-Path $GIT)) {
                         }
                     }
                 }
+
+                # ── STEP 5c: Vercel deploy trigger + freshness verification ──
+                # If a Deploy Hook URL exists in _system\vercel_hook.txt
+                # (gitignored, not committed), fire it so deployment does not
+                # depend on the Git->Vercel integration staying connected.
+                if (Test-Path $VERCEL_HOOK_FILE) {
+                    $hook = (Get-Content $VERCEL_HOOK_FILE -Raw).Trim()
+                    if ($hook -match '^https://') {
+                        try {
+                            Invoke-RestMethod -Uri $hook -Method Post -TimeoutSec 20 | Out-Null
+                            Log "  Vercel deploy hook fired." Green
+                        } catch {
+                            Log "  [WARN] Deploy hook call failed: $($_.Exception.Message)" Yellow
+                        }
+                    }
+                }
+
+                # Poll the live deployment until version.json matches this
+                # refresh (or timeout). This is the staleness guarantee.
+                Log "  Verifying Vercel picked up this refresh..." Cyan
+                $live = $false
+                for ($i = 0; $i -lt 12 -and -not $live; $i++) {
+                    Start-Sleep -Seconds 20
+                    try {
+                        $vj = Invoke-RestMethod "$ORBIT_BASE/version.json?ts=$([DateTime]::Now.Ticks)" `
+                              -UseBasicParsing -TimeoutSec 20 -ErrorAction Stop
+                        if ($vj.refreshed -eq $refreshStamp) { $live = $true }
+                    } catch { }
+                }
+                if ($live) {
+                    Log "  VERIFIED: Vercel is serving refresh $refreshStamp." Green
+                } else {
+                    Log "  [STALE] Vercel did not update within 4 minutes." Red
+                    Log "  Check Vercel project -> Git integration, or create a" Red
+                    Log "  Deploy Hook and save it to _system\vercel_hook.txt" Yellow
+                    Log "  Fallback live copy: $PAGES_URL" Yellow
+                }
             } else {
                 Log "  [WARN] Push failed. Changes committed locally; push manually." Yellow
                 Log "  Run: git -C `"$DASH_DIR`" push origin main" Yellow
@@ -610,7 +670,7 @@ if ($edgeProc) {
     Log "  ORBIT tab reloaded (F5 sent to Edge)." Green
 } else {
     Start-Process $ORBIT_URL
-    Log "  ORBIT opened in default browser (GitHub Pages URL)." Green
+    Log "  ORBIT opened in default browser (Vercel production URL)." Green
 }
 
 # ════════════════════════════════════════════════════════════════
@@ -627,7 +687,8 @@ Write-Host ("  D_PROD rows: $newRows  (+$delta new)") -ForegroundColor Green
 Write-Host ("  Duration   : ${total}s") -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "  DATA IS LIVE on GitHub Pages (~60 s propagation)." -ForegroundColor Cyan
+Write-Host "  DATA IS LIVE on Vercel (verified via version.json beacon)." -ForegroundColor Cyan
+Write-Host "  GitHub Pages fallback: $PAGES_URL" -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "  Live URL:" -ForegroundColor Yellow
 Write-Host "  $ORBIT_URL" -ForegroundColor White
