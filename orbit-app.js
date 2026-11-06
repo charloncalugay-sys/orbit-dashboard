@@ -4490,7 +4490,75 @@ const NOTES = (() => {
   return { init, render, updateBadge };
 })();
 
+/* ═══════════════════════════════════════════════════════════════════════
+   PAYMENT INTEGRITY FUNCTION NAVIGATION
+   Central command-center selector. Functions flagged data-live="true"
+   show the existing ORBIT dashboard; all others show the Under
+   Construction landing panel. Selection persists via localStorage.
+   ═══════════════════════════════════════════════════════════════════════ */
+const FN = (() => {
+  const STORE_KEY = 'orbit_fn';
+  const NAMES = {
+    'cash-control':      'Cash Control',
+    'cob':               'COB',
+    'collections':       'Collections',
+    'dispute-triage':    'DISPUTE TRIAGE',
+    'disputes-intakes':  'Disputes and Intakes',
+    'iqt':               'IQT',
+    'non-cob':           'NON COB',
+    'prepay':            'Prepay'
+  };
+  const DEFAULT_FN = 'dispute-triage';
+
+  // Bars hidden while a non-live function is selected
+  const HIDE_ON_UC = '.orbit-filters, .orbit-page-nav';
+
+  function isLive(btn) { return btn && btn.dataset.live === 'true'; }
+
+  function select(key, persist = true) {
+    const btn = document.querySelector(`.orbit-fn__btn[data-fn="${key}"]`);
+    if (!btn) return;
+
+    document.querySelectorAll('.orbit-fn__btn').forEach(b => {
+      b.classList.toggle('is-active', b === btn);
+      b.setAttribute('aria-current', b === btn ? 'true' : 'false');
+    });
+
+    const uc = document.getElementById('orbit-fn-uc');
+    if (isLive(btn)) {
+      document.querySelectorAll(HIDE_ON_UC).forEach(el => el.classList.remove('is-hidden'));
+      if (uc) uc.classList.add('is-hidden');
+      // Restore correct single-page visibility via the existing router
+      const active = document.querySelector('.orbit-page-tab.is-active');
+      PAGE_NAV.activate(active ? active.dataset.page : 'overview');
+    } else {
+      document.querySelectorAll(HIDE_ON_UC).forEach(el => el.classList.add('is-hidden'));
+      document.querySelectorAll('.orbit-page').forEach(p => p.classList.add('is-hidden'));
+      if (uc) {
+        document.getElementById('orbit-fn-uc-name').textContent = NAMES[key] || key;
+        uc.classList.remove('is-hidden');
+      }
+    }
+
+    if (persist) { try { localStorage.setItem(STORE_KEY, key); } catch (_) {} }
+  }
+
+  function init() {
+    const list = document.getElementById('orbit-fn-list');
+    if (!list) return;
+    list.querySelectorAll('.orbit-fn__btn').forEach(b =>
+      b.addEventListener('click', () => select(b.dataset.fn)));
+    let saved = null;
+    try { saved = localStorage.getItem(STORE_KEY); } catch (_) {}
+    const valid = saved && document.querySelector(`.orbit-fn__btn[data-fn="${saved}"]`);
+    select(valid ? saved : DEFAULT_FN, false);
+  }
+
+  return { init, select };
+})();
+
 document.addEventListener('DOMContentLoaded', () => {
+  FN.init();      // Payment Integrity function nav — restores last selection
   LP.init();
   NOTES.init();   // My Notes module — wires controls, renders badge from localStorage
 });

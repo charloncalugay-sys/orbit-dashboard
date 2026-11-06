@@ -1108,6 +1108,128 @@ img,svg { display: block; max-width: 100%; }
 .orbit-btn--primary:hover { background: var(--purple-dark); border-color: var(--purple-dark); }
 
 /* â”€â”€ Auth chip in header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Payment Integrity function navigation ──────────────────── */
+.orbit-fn {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 20px;
+  background: var(--purple-dark);
+  border-bottom: 1px solid var(--turquoise-pale);
+  overflow-x: auto;
+}
+.orbit-fn__label {
+  flex-shrink: 0;
+  font: 600 10px/1 var(--font-ui, 'Inter', sans-serif);
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--cyan);
+}
+.orbit-fn__list {
+  display: flex; align-items: center; gap: 6px;
+}
+.orbit-fn__btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  font: 600 11px/1 var(--font-ui, 'Inter', sans-serif);
+  letter-spacing: .05em;
+  color: var(--purple-pale);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.orbit-fn__btn:hover {
+  background: rgba(255,255,255,.08);
+  color: var(--white);
+}
+.orbit-fn__btn.is-active {
+  background: var(--white);
+  color: var(--purple-primary);
+  border-color: var(--white);
+}
+.orbit-fn__btn[data-live="false"] { opacity: .72; }
+.orbit-fn__btn[data-live="false"].is-active { opacity: 1; }
+.orbit-fn__badge {
+  font: 700 8px/1 var(--font-ui, 'Inter', sans-serif);
+  letter-spacing: .1em; text-transform: uppercase;
+  padding: 2.5px 7px; border-radius: 999px;
+}
+.orbit-fn__badge--live {
+  background: var(--turquoise);
+  color: var(--white);
+}
+.orbit-fn__badge--soon {
+  background: rgba(255,255,255,.16);
+  color: var(--cyan-pale);
+}
+.orbit-fn__btn.is-active .orbit-fn__badge--soon {
+  background: var(--purple-pale);
+  color: var(--purple-primary);
+}
+
+/* hidden state for bars while Under Construction is showing */
+.orbit-filters.is-hidden, .orbit-page-nav.is-hidden { display: none; }
+
+/* ── Under Construction landing ─────────────────────────────── */
+.orbit-fn-uc {
+  display: flex; align-items: center; justify-content: center;
+  padding: 56px 24px 64px;
+}
+.orbit-fn-uc.is-hidden { display: none; }
+.orbit-fn-uc__card {
+  max-width: 560px; width: 100%;
+  padding: 40px 44px;
+  text-align: center;
+  background: var(--surface);
+  border: 1.5px dashed var(--purple-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+.orbit-fn-uc__badge {
+  display: inline-block;
+  padding: 5px 14px;
+  border-radius: 999px;
+  background: var(--purple-pale);
+  color: var(--purple-primary);
+  font: 700 10px/1 var(--font-ui, 'Inter', sans-serif);
+  letter-spacing: .14em; text-transform: uppercase;
+  margin-bottom: 18px;
+}
+.orbit-fn-uc__name {
+  font: 700 26px/1.15 var(--font-ui, 'Inter', sans-serif);
+  color: var(--purple-dark);
+  margin-bottom: 14px;
+}
+.orbit-fn-uc__msg {
+  font: 400 13px/1.6 var(--font-ui, 'Inter', sans-serif);
+  color: var(--text-muted);
+  margin-bottom: 26px;
+}
+.orbit-fn-uc__modules {
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.orbit-fn-uc__modules-label {
+  display: block;
+  font: 600 9.5px/1 var(--font-ui, 'Inter', sans-serif);
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+.orbit-fn-uc__module-list {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
+}
+.orbit-fn-uc__module-list li {
+  padding: 6px 13px;
+  border-radius: 999px;
+  background: var(--gray-light);
+  border: 1px solid var(--turquoise-pale);
+  font: 600 10.5px/1 var(--font-ui, 'Inter', sans-serif);
+  letter-spacing: .04em;
+  color: var(--purple-dark);
+}
+
+/* ── Auth chip in header ──────────────────────────────────── */
 .orbit-auth-chip {
   display: inline-flex;
   align-items: center;

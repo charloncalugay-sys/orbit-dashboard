@@ -65,6 +65,37 @@
     </div>
   </header>
 
+  <!-- ── Payment Integrity function navigation ─────────────── -->
+  <nav class="orbit-fn" role="navigation" aria-label="Payment Integrity functions">
+    <span class="orbit-fn__label">Functions</span>
+    <div class="orbit-fn__list" id="orbit-fn-list">
+      <button class="orbit-fn__btn" type="button" data-fn="cash-control" data-live="false">
+        Cash Control<span class="orbit-fn__badge orbit-fn__badge--soon">Soon</span>
+      </button>
+      <button class="orbit-fn__btn" type="button" data-fn="cob" data-live="false">
+        COB<span class="orbit-fn__badge orbit-fn__badge--soon">Soon</span>
+      </button>
+      <button class="orbit-fn__btn" type="button" data-fn="collections" data-live="false">
+        Collections<span class="orbit-fn__badge orbit-fn__badge--soon">Soon</span>
+      </button>
+      <button class="orbit-fn__btn is-active" type="button" data-fn="dispute-triage" data-live="true">
+        DISPUTE TRIAGE<span class="orbit-fn__badge orbit-fn__badge--live">Live</span>
+      </button>
+      <button class="orbit-fn__btn" type="button" data-fn="disputes-intakes" data-live="true">
+        Disputes and Intakes<span class="orbit-fn__badge orbit-fn__badge--live">Live</span>
+      </button>
+      <button class="orbit-fn__btn" type="button" data-fn="iqt" data-live="false">
+        IQT<span class="orbit-fn__badge orbit-fn__badge--soon">Soon</span>
+      </button>
+      <button class="orbit-fn__btn" type="button" data-fn="non-cob" data-live="false">
+        NON COB<span class="orbit-fn__badge orbit-fn__badge--soon">Soon</span>
+      </button>
+      <button class="orbit-fn__btn" type="button" data-fn="prepay" data-live="false">
+        Prepay<span class="orbit-fn__badge orbit-fn__badge--soon">Soon</span>
+      </button>
+    </div>
+  </nav>
+
   <!-- ── Filters ──────────────────────────────────────────── -->
   <nav class="orbit-filters" role="navigation" aria-label="Dashboard filters">
 
@@ -1160,6 +1191,29 @@
        ORBIT FOOTER — Operational / Business Partner Branding
        Payment Integrity  |  IGNITE  |  Clinical Tower
        ══════════════════════════════════════════════════════════ -->
+  <!-- ── Under Construction landing (non-live functions) ───── -->
+  <section class="orbit-fn-uc is-hidden" id="orbit-fn-uc" role="region" aria-live="polite">
+    <div class="orbit-fn-uc__card">
+      <div class="orbit-fn-uc__badge">Under Construction</div>
+      <h2 class="orbit-fn-uc__name" id="orbit-fn-uc-name">Function</h2>
+      <p class="orbit-fn-uc__msg">
+        This module is reserved for future ORBIT integration.<br />
+        Operational data has not yet been onboarded.
+      </p>
+      <div class="orbit-fn-uc__modules">
+        <span class="orbit-fn-uc__modules-label">Expected Future Modules</span>
+        <ul class="orbit-fn-uc__module-list">
+          <li>KPI Dashboard</li>
+          <li>Productivity</li>
+          <li>Quality</li>
+          <li>Alerts</li>
+          <li>Associate Records</li>
+          <li>Reporting</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
   <footer class="orbit-footer" role="contentinfo" aria-label="Organizational branding">
 
     <!-- Gradient divider line above footer -->
