@@ -3473,7 +3473,7 @@ Powered by Payment Integrity IGNITE
     applyAccess();           // restores session + shows/hides portal tab
   }
 
-  return { init, applyAccess };
+  return { init, applyAccess, showSub };
 })();
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -4579,10 +4579,95 @@ const FN = (() => {
   return { init, select };
 })();
 
+/* ═══════════════════════════════════════════════════════════════════════
+   RAIL — TEMPUS-style left navigation rail
+   Section 1 module items route to dashboard pages (PAGE_NAV) or
+   Leadership Portal sub-pages (LP.showSub). Leadership-gated items open
+   the sign-in modal first, then complete navigation after unlock.
+   Collapse state persists in localStorage.
+   ═══════════════════════════════════════════════════════════════════════ */
+const RAIL = (() => {
+  const KEY = 'orbit_rail_collapsed';
+  let pendingSub = null;
+
+  function rail() { return document.getElementById('orbit-rail'); }
+
+  function setCollapsed(c) {
+    const r = rail(); if (!r) return;
+    r.classList.toggle('is-collapsed', c);
+    const t = document.getElementById('orbit-rail-toggle');
+    if (t) {
+      t.setAttribute('aria-expanded', c ? 'false' : 'true');
+      t.setAttribute('aria-label', c ? 'Expand navigation' : 'Collapse navigation');
+    }
+    try { localStorage.setItem(KEY, c ? '1' : '0'); } catch (_) {}
+  }
+
+  // If a non-live function's Under Construction view is showing,
+  // return to the live function before routing to a module page.
+  function ensureLiveFn() {
+    const uc = document.getElementById('orbit-fn-uc');
+    if (uc && !uc.classList.contains('is-hidden')) FN.select('disputes-intakes', false);
+  }
+
+  function mark(btn) {
+    document.querySelectorAll('.orbit-rail__item').forEach(b =>
+      b.classList.toggle('is-active', b === btn));
+  }
+
+  function enterSub(sub, btn) {
+    ensureLiveFn();
+    PAGE_NAV.activate('leadership');
+    LP.showSub(sub, false);
+    if (btn) mark(btn);
+  }
+
+  function goSub(sub, btn) {
+    const tab = document.getElementById('tab-leadership');
+    if (tab && tab.classList.contains('is-hidden')) {
+      pendingSub = { sub, btn };
+      document.getElementById('orbit-auth-chip').click();   // open sign-in modal
+      return;
+    }
+    enterSub(sub, btn);
+  }
+
+  // Complete a pending sub-navigation once sign-in reveals the tab
+  function watchUnlock() {
+    const tab = document.getElementById('tab-leadership');
+    if (!tab) return;
+    new MutationObserver(() => {
+      if (pendingSub && !tab.classList.contains('is-hidden')) {
+        const p = pendingSub; pendingSub = null;
+        enterSub(p.sub, p.btn);
+      }
+    }).observe(tab, { attributes: true, attributeFilter: ['class'] });
+  }
+
+  function init() {
+    const r = rail(); if (!r) return;
+    const t = document.getElementById('orbit-rail-toggle');
+    if (t) t.addEventListener('click', () => setCollapsed(!r.classList.contains('is-collapsed')));
+    try { setCollapsed(localStorage.getItem(KEY) === '1'); } catch (_) {}
+    document.querySelectorAll('.orbit-rail__item[data-nav-page]').forEach(b =>
+      b.addEventListener('click', () => {
+        ensureLiveFn();
+        PAGE_NAV.activate(b.dataset.navPage);
+        mark(b);
+      }));
+    document.querySelectorAll('.orbit-rail__item[data-nav-sub]').forEach(b =>
+      b.addEventListener('click', () => goSub(b.dataset.navSub, b)));
+    watchUnlock();
+  }
+
+  return { init };
+})();
+
 document.addEventListener('DOMContentLoaded', () => {
   FN.init();      // Payment Integrity function nav — restores last selection
   LP.init();
   NOTES.init();   // My Notes module — wires controls, renders badge from localStorage
+  RAIL.init();    // TEMPUS-style left rail — collapse state + module routing
 });
 
 

@@ -1170,51 +1170,107 @@ img,svg { display: block; max-width: 100%; }
 /* hidden state for bars while Under Construction is showing */
 .orbit-filters.is-hidden, .orbit-page-nav.is-hidden { display: none; }
 
-/* ── Related Platforms (Vanguard launch card) ───────────── */
-.orbit-platform {
-  display: flex;
-  padding: 8px 20px;
-  background: var(--purple-dark);
-  border-bottom: 1px solid var(--turquoise-pale);
+/* ── TEMPUS-style left navigation rail ──────────────────── */
+.orbit-body {
+  flex: 1; display: flex; align-items: stretch; min-height: 0;
 }
-.orbit-platform__card {
-  display: inline-flex; align-items: center; gap: 14px;
-  padding: 8px 16px 8px 10px;
-  border: 1px solid rgba(255,255,255,.14);
-  border-radius: 12px;
+.orbit-main {
+  flex: 1; min-width: 0; display: flex; flex-direction: column;
+}
+.orbit-rail {
+  width: 224px; flex-shrink: 0;
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 10px 10px 18px;
+  background: var(--purple-dark);
+  border-right: 1px solid var(--turquoise-pale);
+  transition: width .18s ease;
+  overflow-y: auto;
+}
+.orbit-rail__toggle {
+  align-self: flex-end;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px;
+  border: 1px solid rgba(255,255,255,.16); border-radius: 8px;
+  background: transparent; color: var(--cyan);
+  cursor: pointer;
+  transition: background .15s;
+}
+.orbit-rail__toggle:hover { background: rgba(255,255,255,.08); }
+.orbit-rail.is-collapsed .orbit-rail__toggle svg { transform: rotate(180deg); }
+.orbit-rail__group { display: flex; flex-direction: column; gap: 3px; }
+.orbit-rail__heading {
+  padding: 2px 8px 6px;
+  font: 700 9px/1 var(--font-ui, 'Inter', sans-serif);
+  letter-spacing: .16em; text-transform: uppercase;
+  color: var(--cyan);
+}
+.orbit-rail__subheading {
+  padding: 6px 8px 3px;
+  font: 600 8px/1 var(--font-ui, 'Inter', sans-serif);
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--purple-pale); opacity: .7;
+}
+.orbit-rail__item,
+.orbit-rail .orbit-fn__btn {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 7px 8px;
+  border: 1px solid transparent; border-radius: 8px;
+  background: transparent;
+  font: 600 11px/1.2 var(--font-ui, 'Inter', sans-serif);
+  letter-spacing: .02em; text-align: left;
+  color: var(--purple-pale);
+  cursor: pointer; white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+.orbit-rail__item:hover,
+.orbit-rail .orbit-fn__btn:hover {
+  background: rgba(255,255,255,.08); color: var(--white);
+}
+.orbit-rail__item.is-active,
+.orbit-rail .orbit-fn__btn.is-active {
+  background: var(--white); color: var(--purple-primary);
+}
+.orbit-rail .orbit-fn__btn .orbit-fn__badge { margin-left: auto; }
+.orbit-rail__item svg, .orbit-rail .orbit-fn__btn svg { flex-shrink: 0; }
+
+/* Vanguard platform card inside the rail */
+.orbit-rail__vanguard {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 8px;
+  border: 1px solid rgba(255,255,255,.14); border-radius: 10px;
   background: rgba(255,255,255,.04);
   text-decoration: none;
   transition: background .15s, border-color .15s;
 }
-.orbit-platform__card:hover {
-  background: rgba(255,255,255,.09);
-  border-color: var(--cyan);
+.orbit-rail__vanguard:hover { background: rgba(255,255,255,.09); border-color: var(--cyan); }
+.orbit-rail__vanguard-logo { height: 34px; width: auto; object-fit: contain; flex-shrink: 0; }
+.orbit-rail__vanguard-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.orbit-rail__vanguard-name {
+  font: 700 10px/1.2 var(--font-ui, 'Inter', sans-serif);
+  letter-spacing: .1em; color: var(--white);
 }
-.orbit-platform__logo {
-  height: 46px; width: auto;
-  object-fit: contain;
-}
-.orbit-platform__text { display: flex; flex-direction: column; gap: 2px; }
-.orbit-platform__name {
-  font: 700 11px/1 var(--font-ui, 'Inter', sans-serif);
-  letter-spacing: .12em;
-  color: var(--white);
-}
-.orbit-platform__tag {
-  font: 500 10px/1.3 var(--font-ui, 'Inter', sans-serif);
+.orbit-rail__vanguard-tag {
+  font: 500 9px/1.3 var(--font-ui, 'Inter', sans-serif);
   color: var(--cyan-pale);
 }
-.orbit-platform__cta {
-  margin-left: 6px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: var(--turquoise);
-  font: 600 10.5px/1 var(--font-ui, 'Inter', sans-serif);
-  letter-spacing: .05em;
-  color: var(--white);
-  white-space: nowrap;
+
+/* Collapsed (icon-only) mode */
+.orbit-rail.is-collapsed { width: 60px; padding: 10px 8px 18px; align-items: center; }
+.orbit-rail.is-collapsed .orbit-rail__toggle { align-self: center; }
+.orbit-rail.is-collapsed .orbit-rail__heading,
+.orbit-rail.is-collapsed .orbit-rail__subheading,
+.orbit-rail.is-collapsed .orbit-rail__label,
+.orbit-rail.is-collapsed .orbit-fn__badge,
+.orbit-rail.is-collapsed .orbit-rail__vanguard-text { display: none; }
+.orbit-rail.is-collapsed .orbit-rail__item,
+.orbit-rail.is-collapsed .orbit-fn__btn { justify-content: center; padding: 8px; }
+.orbit-rail.is-collapsed .orbit-fn__btn::before {
+  content: ''; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--purple-pale); opacity: .55; flex-shrink: 0;
 }
-.orbit-platform__card:hover .orbit-platform__cta { background: var(--cyan); }
+.orbit-rail.is-collapsed .orbit-fn__btn[data-live="true"]::before { background: var(--turquoise); opacity: 1; }
+.orbit-rail.is-collapsed .orbit-fn__btn.is-active::before { background: var(--purple-primary); }
+.orbit-rail.is-collapsed .orbit-rail__vanguard { justify-content: center; padding: 8px; }
 
 /* ── Under Construction landing ─────────────────────────────── */
 .orbit-fn-uc {
