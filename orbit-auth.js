@@ -1,5 +1,5 @@
 ﻿// ORBIT Leadership roster - generated file
-// Generated: 2026-11-09 15:37
+// Generated: 2026-11-10 15:08
 // Source: ORBIT_Leadership.xlsx (single source of truth for authorization)
 // DOMAIN is the unique security key - do not edit by hand
 const D_LEADERSHIP=[
