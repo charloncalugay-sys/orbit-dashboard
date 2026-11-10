@@ -1233,6 +1233,9 @@ img,svg { display: block; max-width: 100%; }
 .orbit-rail .orbit-fn__btn .orbit-fn__badge { margin-left: auto; }
 .orbit-rail__item svg, .orbit-rail .orbit-fn__btn svg { flex-shrink: 0; }
 
+/* Leadership-gated items — fully hidden until sign-in unlocks the rail */
+.orbit-rail:not(.is-unlocked) .orbit-rail__item--gated { display: none; }
+
 /* Vanguard platform card inside the rail */
 .orbit-rail__vanguard {
   display: flex; align-items: center; gap: 10px;

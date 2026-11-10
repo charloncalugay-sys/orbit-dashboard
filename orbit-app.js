@@ -4632,16 +4632,27 @@ const RAIL = (() => {
     enterSub(sub, btn);
   }
 
-  // Complete a pending sub-navigation once sign-in reveals the tab
+  // Leadership tab visibility is the single source of truth for access.
+  // Mirror it onto the rail: gated items appear only when signed in,
+  // and any pending sub-navigation completes on unlock.
+  function syncAccess() {
+    const tab = document.getElementById('tab-leadership');
+    const r = rail();
+    if (!tab || !r) return;
+    const unlocked = !tab.classList.contains('is-hidden');
+    r.classList.toggle('is-unlocked', unlocked);
+    if (unlocked && pendingSub) {
+      const p = pendingSub; pendingSub = null;
+      enterSub(p.sub, p.btn);
+    }
+  }
+
   function watchUnlock() {
     const tab = document.getElementById('tab-leadership');
     if (!tab) return;
-    new MutationObserver(() => {
-      if (pendingSub && !tab.classList.contains('is-hidden')) {
-        const p = pendingSub; pendingSub = null;
-        enterSub(p.sub, p.btn);
-      }
-    }).observe(tab, { attributes: true, attributeFilter: ['class'] });
+    new MutationObserver(syncAccess)
+      .observe(tab, { attributes: true, attributeFilter: ['class'] });
+    syncAccess();   // session may already be restored before RAIL.init runs
   }
 
   function init() {
