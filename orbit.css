@@ -1191,7 +1191,7 @@ img,svg { display: block; max-width: 100%; }
   border-color: var(--cyan);
 }
 .orbit-platform__logo {
-  height: 34px; width: auto;
+  height: 46px; width: auto;
   object-fit: contain;
 }
 .orbit-platform__text { display: flex; flex-direction: column; gap: 2px; }
