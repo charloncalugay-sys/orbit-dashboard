@@ -7,6 +7,10 @@
 _system/prod_raw.csv
 _system/qa_raw.csv
 _system/assoc_raw.csv
+_system/roster_dump.csv
+_system/roster_prev.csv
+_system/assoc_history.csv
+_system/fn_unclassified.json
 *.xlsx
 *.xls
 

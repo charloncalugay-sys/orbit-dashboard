@@ -99,11 +99,56 @@ function qaStatus(score) {
 const idToName = {};
 D_ASSOC.forEach(r => { if (r.id && r.n) idToName[r.id] = r.n; });
 
+/* ── Function classification (roster = function authority) ────
+   Every record resolves to a Payment Integrity function key via
+   D_FN:  id -> byId  |  exact name -> byName  |  unique-last-name
+   + first-token fallback  |  'un' (unclassified).
+   D_DIM carries the CURRENT assignment (fn/am/mgr/pos/tower) —
+   authoritative for all filtering/KPIs. D_HIST holds movement
+   history and is display-only: it never overrides D_DIM.
+   CUR_FN scopes P()/Q()/MGRS(); FN nav switches it.            */
+let CUR_FN = 'disputes-intakes';
+try { const s = localStorage.getItem('orbit_fn'); if (s) CUR_FN = s; } catch (_) {}
+const FN_NAME_IDX = {};
+const FN_LAST_IDX = {};
+function normName(s) { return (s || '').trim().toLowerCase().replace(/\s+/g, ' '); }
+(function buildFnIdx() {
+  const M = (typeof D_FN !== 'undefined' && D_FN.byName) || {};
+  Object.keys(M).forEach(n => {
+    FN_NAME_IDX[normName(n)] = M[n];
+    const last = n.split(',')[0].trim().toLowerCase();
+    (FN_LAST_IDX[last] = FN_LAST_IDX[last] || []).push({ n, fn: M[n] });
+  });
+})();
+function fnOf(r) {
+  if (typeof D_FN === 'undefined' || !D_FN.byId) return CUR_FN;   // legacy data: unscoped
+  if (r.id && D_FN.byId[r.id]) return D_FN.byId[r.id];
+  const nm = normName(r.a || r.n || '');
+  if (FN_NAME_IDX[nm]) return FN_NAME_IDX[nm];
+  const cand = FN_LAST_IDX[nm.split(',')[0]];
+  if (cand && cand.length === 1) {
+    const tok  = (nm.split(',')[1] || '').trim().split(' ')[0];
+    const ctok = (normName(cand[0].n).split(',')[1] || '').trim().split(' ')[0];
+    if (tok && ctok && tok === ctok) return cand[0].fn;
+  }
+  return 'un';
+}
+function P()    { return D_PROD.filter(r => fnOf(r) === CUR_FN); }
+function Q()    { return D_QA.filter(r => fnOf(r) === CUR_FN); }
+function MGRS() { return [...new Set([...P(), ...Q()].map(r => r.m))].filter(Boolean).sort(); }
+function DIM_FN() { return (typeof D_DIM !== 'undefined' ? D_DIM : []).filter(d => d.fn === CUR_FN); }
+function unclassifiedAssocCount() {
+  const s = new Set();
+  D_PROD.forEach(r => { if (r.a && fnOf(r) === 'un') s.add('n:' + r.a); });
+  D_QA.forEach(r => { if ((r.id || r.a) && fnOf(r) === 'un') s.add('i:' + (r.id || r.a)); });
+  return s.size;
+}
+
 /* ── Data filtering ─────────────────────────────────────────── */
 // Manager filter matches D_PROD[m] directly — period-aware because
 // each D_PROD row carries the manager valid for that specific ym.
 function filterProd(month, manager) {
-  return D_PROD.filter(r =>
+  return P().filter(r =>
     (manager === 'all' || r.m === manager) &&
     (month   === 'all' || r.ym === month)
   );
@@ -111,7 +156,7 @@ function filterProd(month, manager) {
 
 // QA manager filter matches D_QA[m] directly (same logic).
 function filterQA(month, manager) {
-  return D_QA.filter(r =>
+  return Q().filter(r =>
     (manager === 'all' || r.m === manager) &&
     (month   === 'all' || r.d.startsWith(month))
   );
@@ -566,7 +611,7 @@ function renderEnterpriseKPIs() {
       entVEl.textContent = '—';
     } else {
       // Full-month total across ALL managers — true enterprise view, ignores manager filter.
-      const allMonthProd = D_PROD.filter(r => r.ym === STATE.month);
+      const allMonthProd = P().filter(r => r.ym === STATE.month);
       const totalActFull = allMonthProd.reduce((s, r) => s + (r.act || 0), 0);
       const variance     = Math.round((totalActFull - ent.target) * 100) / 100;
       entVEl.textContent = fmt.sign(variance);
@@ -595,7 +640,7 @@ function updatePeriodBadge() {
 function buildMonthPills() {
   const container = document.getElementById('month-pills');
   if (!container) return;
-  const months = uniqueSorted(D_PROD, 'ym');
+  const months = uniqueSorted(P(), 'ym');
 
   const allPill = document.createElement('button');
   allPill.className = 'orbit-pill is-active';
@@ -632,7 +677,7 @@ function buildManagerSelect() {
   if (!sel) return;
 
   sel.innerHTML = '<option value="all">All Managers</option>';
-  D_MANAGERS.forEach(m => {
+  MGRS().forEach(m => {
     const opt = document.createElement('option');
     opt.value = m;
     opt.textContent = m;
@@ -718,6 +763,7 @@ function init() {
   initTableSearch();
   updateSortUI();
   refresh();
+  PAGE_NAV.register('overview', refresh);   // enables FN function-switch re-render
 
   const loader = document.getElementById('orbit-loading');
   if (loader) { loader.classList.add('is-hidden'); setTimeout(() => loader.remove(), 500); }
@@ -732,9 +778,13 @@ document.addEventListener('DOMContentLoaded', init);
    this so the Leadership tab activation triggers renderAll.   */
 const PAGE_NAV = (() => {
   const firstRender = {};   // pageId → callback run once on first open
+  const renderers   = {};   // pageId → persistent render callback (FN re-render)
   let ready = false;
 
-  function register(pageId, cb) { firstRender[pageId] = cb; }
+  function register(pageId, cb) { firstRender[pageId] = cb; renderers[pageId] = cb; }
+
+  // Re-render a page in place (used by FN when the active function changes)
+  function rerender(target) { if (renderers[target]) renderers[target](); }
 
   function activate(target, opts = {}) {
     document.querySelectorAll('.orbit-page-tab').forEach(t => {
@@ -758,7 +808,7 @@ const PAGE_NAV = (() => {
     });
   }
 
-  return { init, register, activate };
+  return { init, register, activate, rerender };
 })();
 
 document.addEventListener('DOMContentLoaded', PAGE_NAV.init);
@@ -799,7 +849,7 @@ const DD = (() => {
   function filteredRows() {
     const q        = S.search.toLowerCase().trim();
     const dateStr  = isoToMdY(S.date);   // '' when no date selected
-    return D_PROD.filter(r => {
+    return P().filter(r => {
       if (S.month   !== 'all' && r.ym !== S.month)        return false;
       if (S.manager !== 'all' && r.m  !== S.manager)       return false;
       if (S.assoc   !== 'all' && r.a  !== S.assoc)         return false;
@@ -907,7 +957,7 @@ const DD = (() => {
   function buildMonthPills() {
     const container = document.getElementById('dd-month-pills');
     if (!container) return;
-    const months = uniqueSorted(D_PROD, 'ym');
+    const months = uniqueSorted(P(), 'ym');
 
     const allBtn = document.createElement('button');
     allBtn.className = 'orbit-pill' + (S.month === 'all' ? ' is-active' : '');
@@ -944,7 +994,7 @@ const DD = (() => {
     const sel = document.getElementById('dd-manager-select');
     if (!sel) return;
     sel.innerHTML = '<option value="all">All Managers</option>';
-    D_MANAGERS.forEach(m => {
+    MGRS().forEach(m => {
       const opt = document.createElement('option');
       opt.value = m;
       opt.textContent = m;
@@ -974,7 +1024,7 @@ const DD = (() => {
     if (!sel) return;
     const prev = sel.value;
     const assocs = [...new Set(
-      D_PROD
+      P()
         .filter(r => (S.month === 'all' || r.ym === S.month) && (S.manager === 'all' || r.m === S.manager))
         .map(r => r.a)
         .filter(Boolean)
@@ -1166,12 +1216,12 @@ const MP = (() => {
   /* ── Core computation ────────────────────────────────────── */
   // Returns one row per (associate × month): { a, m, ym, act, tgt, prodPct, avgQA }
   function computeRows() {
-    const prodRows = D_PROD.filter(r =>
+    const prodRows = P().filter(r =>
       (S.month   === 'all' || r.ym === S.month) &&
       (S.manager === 'all' || r.m  === S.manager) &&
       (S.assoc   === 'all' || r.a  === S.assoc)
     );
-    const qaRows = D_QA.filter(r =>
+    const qaRows = Q().filter(r =>
       (S.month   === 'all' || r.d.startsWith(S.month)) &&
       (S.manager === 'all' || r.m  === S.manager)
     );
@@ -1733,7 +1783,7 @@ const MP = (() => {
   function buildMonthPills() {
     const container = document.getElementById('mp-month-pills');
     if (!container) return;
-    const months = uniqueSorted(D_PROD, 'ym');
+    const months = uniqueSorted(P(), 'ym');
 
     const mkBtn = (val, label) => {
       const b = document.createElement('button');
@@ -1761,7 +1811,7 @@ const MP = (() => {
     const sel = document.getElementById('mp-manager-select');
     if (!sel) return;
     sel.innerHTML = '<option value="all">All Managers</option>';
-    D_MANAGERS.forEach(m => {
+    MGRS().forEach(m => {
       const o = document.createElement('option');
       o.value = m; o.textContent = m;
       sel.appendChild(o);
@@ -1785,7 +1835,7 @@ const MP = (() => {
     if (!sel) return;
     const prev = sel.value;
     const assocs = [...new Set(
-      D_PROD
+      P()
         .filter(r =>
           (S.month   === 'all' || r.ym === S.month) &&
           (S.manager === 'all' || r.m  === S.manager))
@@ -2111,7 +2161,7 @@ const LP = (() => {
      Same merge logic as Monthly Performance page. */
   function computeRows() {
     const prodMap = {};
-    D_PROD.forEach(r => {
+    P().forEach(r => {
       if (!r.a || !r.ym) return;
       const key = r.a + '|' + r.ym;
       if (!prodMap[key]) prodMap[key] = { a: r.a, m: r.m, ym: r.ym, act: 0, tgt: 0 };
@@ -2120,7 +2170,7 @@ const LP = (() => {
     });
 
     const qaMap = {};
-    D_QA.forEach(r => {
+    Q().forEach(r => {
       const name = idToName[r.id] || r.a || r.id;
       if (!name || !r.d) return;
       const ym = r.d.substring(0, 7);
@@ -3471,6 +3521,7 @@ Powered by Payment Integrity IGNITE
     initModal();
     initSubNav();
     applyAccess();           // restores session + shows/hides portal tab
+    PAGE_NAV.register('leadership', renderAll);   // FN function-switch re-render
   }
 
   return { init, applyAccess, showSub };
@@ -3553,8 +3604,8 @@ const AR = (() => {
   function allAssocs() {
     // Step 1: filter D_PROD to the selected month (or all months)
     const rows = S.month === 'all'
-      ? D_PROD.filter(r => r.a)
-      : D_PROD.filter(r => r.a && r.ym === S.month);
+      ? P().filter(r => r.a)
+      : P().filter(r => r.a && r.ym === S.month);
 
     // Step 2: group by associate; for each group pick the most-recent ym's manager
     // (handles 'all' correctly when an associate has transferred mid-year)
@@ -3983,7 +4034,7 @@ const AR = (() => {
     const sel = document.getElementById('ar-month');
     if (!sel) return;
     // Derive available months from D_PROD (same source of truth as Overview pills)
-    const months = [...new Set(D_PROD.map(r => r.ym).filter(Boolean))].sort();
+    const months = [...new Set(P().map(r => r.ym).filter(Boolean))].sort();
     const keep   = sel.value || 'all';
     sel.innerHTML = '<option value="all">All Months</option>' +
       months.map(ym => `<option value="${esc(ym)}">${esc(ym)}</option>`).join('');
@@ -4535,39 +4586,99 @@ const FN = (() => {
   // Bars hidden while a non-live function is selected
   const HIDE_ON_UC = '.orbit-filters, .orbit-page-nav';
 
-  function isLive(btn) { return btn && btn.dataset.live === 'true'; }
+  // Maturity per function from D_FN_META: 'full' | 'qa' | 'prod' | 'uc'
+  const META = {};
+  (typeof D_FN_META !== 'undefined' ? D_FN_META : []).forEach(m => { META[m.key] = m; });
+
+  function stateOf(btn) {
+    const v = btn && btn.dataset.live;
+    return (v === 'full' || v === 'qa' || v === 'prod') ? v : 'uc';
+  }
+  function isLive(btn) { return stateOf(btn) !== 'uc'; }
+
+  // Hydrate button data-live + badge from D_FN_META (markup is the fallback)
+  function hydrate() {
+    document.querySelectorAll('.orbit-fn__btn').forEach(b => {
+      const meta  = META[b.dataset.fn];
+      const state = meta ? meta.state
+                       : (b.dataset.live === 'true' ? 'full' : 'uc');
+      b.dataset.live = state;
+      const badge = b.querySelector('.orbit-fn__badge');
+      if (badge) {
+        badge.className = 'orbit-fn__badge ' +
+          (state === 'uc' ? 'orbit-fn__badge--soon' : 'orbit-fn__badge--live');
+        badge.textContent =
+          state === 'uc' ? 'Soon' : (state === 'qa' ? 'QA' : 'Live');
+      }
+    });
+  }
+
+  function setViews({ bars, pages, uc, qv }) {
+    document.querySelectorAll(HIDE_ON_UC).forEach(el =>
+      el.classList.toggle('is-hidden', !bars));
+    document.querySelectorAll('.orbit-page').forEach(p =>
+      p.classList.toggle('is-hidden', !pages ? true : p.classList.contains('is-hidden')));
+    const ucEl = document.getElementById('orbit-fn-uc');
+    if (ucEl) ucEl.classList.toggle('is-hidden', !uc);
+    const qvEl = document.getElementById('orbit-fn-qa');
+    if (qvEl) qvEl.classList.toggle('is-hidden', !qv);
+  }
 
   function select(key, persist = true) {
     const btn = document.querySelector(`.orbit-fn__btn[data-fn="${key}"]`);
     if (!btn) return;
+
+    const changed = CUR_FN !== key;
+    CUR_FN = key;
 
     document.querySelectorAll('.orbit-fn__btn').forEach(b => {
       b.classList.toggle('is-active', b === btn);
       b.setAttribute('aria-current', b === btn ? 'true' : 'false');
     });
 
-    const uc = document.getElementById('orbit-fn-uc');
-    if (isLive(btn)) {
-      document.querySelectorAll(HIDE_ON_UC).forEach(el => el.classList.remove('is-hidden'));
-      if (uc) uc.classList.add('is-hidden');
-      // Restore correct single-page visibility via the existing router
-      const active = document.querySelector('.orbit-page-tab.is-active');
-      PAGE_NAV.activate(active ? active.dataset.page : 'overview');
-    } else {
-      document.querySelectorAll(HIDE_ON_UC).forEach(el => el.classList.add('is-hidden'));
-      document.querySelectorAll('.orbit-page').forEach(p => p.classList.add('is-hidden'));
-      if (uc) {
-        document.getElementById('orbit-fn-uc-name').textContent = NAMES[key] || key;
-        uc.classList.remove('is-hidden');
+    const state = stateOf(btn);
+    if (state === 'full' || state === 'prod') {
+      setViews({ bars: true, pages: true, uc: false, qv: false });
+      // Function switch resets the period filters — months/managers
+      // are rebuilt against the newly scoped dataset.
+      if (changed) {
+        STATE.month = 'all'; STATE.manager = 'all';
+        buildMonthPills(); buildManagerSelect();
       }
+      const active = document.querySelector('.orbit-page-tab.is-active');
+      const page = active ? active.dataset.page : 'overview';
+      PAGE_NAV.activate(page);
+      PAGE_NAV.rerender(page);
+    } else if (state === 'qa') {
+      setViews({ bars: false, pages: false, uc: false, qv: true });
+      FNQA.render(key);
+    } else {
+      setViews({ bars: false, pages: false, uc: true, qv: false });
+      const el = document.getElementById('orbit-fn-uc-name');
+      if (el) el.textContent = NAMES[key] || key;
     }
+    updateUnChip();
 
     if (persist) { try { localStorage.setItem(STORE_KEY, key); } catch (_) {} }
+  }
+
+  // Admin-only diagnostic: associates that failed classification.
+  function updateUnChip() {
+    const chip = document.getElementById('orbit-fn-un');
+    if (!chip || typeof AUTH === 'undefined') return;
+    if (AUTH.role() === 'admin') {
+      const n = unclassifiedAssocCount();
+      chip.textContent = n > 0 ? `Unclassified: ${n} assoc` : 'Unclassified: 0';
+      chip.classList.remove('is-hidden');
+    } else {
+      chip.classList.add('is-hidden');
+    }
   }
 
   function init() {
     const list = document.getElementById('orbit-fn-list');
     if (!list) return;
+    hydrate();
     list.querySelectorAll('.orbit-fn__btn').forEach(b =>
       b.addEventListener('click', () => select(b.dataset.fn)));
     let saved = null;
@@ -4576,7 +4687,81 @@ const FN = (() => {
     select(valid ? saved : DEFAULT_FN, false);
   }
 
-  return { init, select };
+  return { init, select, updateUnChip, stateOf, NAMES, META };
+})();
+
+/* ═══════════════════════════════════════════════════════════════════════
+   FNQA — QA-state function landing page (#orbit-fn-qa)
+   Shown when a function has QA data but no productivity integration yet.
+   Displays QA metrics, roster associate counts, leadership assignments,
+   and per-associate QA detail. Workforce history (D_HIST) is shown
+   informationally — current assignment always stays authoritative.
+   ═══════════════════════════════════════════════════════════════════════ */
+const FNQA = (() => {
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replace(/[&<>"]/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const fmtScore = v => (v * 100).toFixed(2) + '%';
+
+  function render(key) {
+    const meta  = FN.META[key] || {};
+    const dim   = DIM_FN();
+    const qRows = Q();
+    const name  = FN.NAMES[key] || key;
+
+    $('orbit-fn-qa-name').textContent = name;
+    $('fn-qa-roster').textContent  = meta.assoc ?? dim.length;
+    $('fn-qa-audits').textContent  = (meta.qa ?? qRows.reduce((s, r) => s + (r.cnt || 0), 0)).toLocaleString();
+    const cnt = qRows.reduce((s, r) => s + (r.cnt || 0), 0);
+    const w   = qRows.reduce((s, r) => s + (r.cnt || 0) * (r.scr || 0), 0);
+    $('fn-qa-score').textContent   = cnt ? fmtScore(w / cnt) : '—';
+    $('fn-qa-audited').textContent = new Set(qRows.map(r => r.id || r.a)).size;
+
+    // Leadership assignments from the roster (current state — D_DIM)
+    const ams  = meta.ams  || [...new Set(dim.map(d => d.am))].filter(Boolean).sort();
+    const mgrs = meta.mgrs || [...new Set(dim.map(d => d.mgr))].filter(Boolean).sort();
+    $('fn-qa-leads').innerHTML =
+      (ams.length ? `<div class="fn-qa-lead"><span class="fn-qa-lead__role">Assistant Managers</span><span>${ams.map(esc).join(' · ')}</span></div>` : '') +
+      (mgrs.length ? `<div class="fn-qa-lead"><span class="fn-qa-lead__role">Managers</span><span>${mgrs.map(esc).join(' · ')}</span></div>` : '');
+
+    // Per-associate QA rollup; roster (D_DIM) is authoritative for assignment.
+    const byId = {}; dim.forEach(d => { byId[d.id] = d; });
+    const byName = {}; dim.forEach(d => { byName[normName(d.n)] = d; });
+    const agg = {};
+    qRows.forEach(r => {
+      const k = r.id || r.a; if (!k) return;
+      (agg[k] = agg[k] || { id: r.id, a: r.a, cnt: 0, w: 0 });
+      agg[k].cnt += r.cnt || 0;
+      agg[k].w   += (r.cnt || 0) * (r.scr || 0);
+    });
+    const hist = (typeof D_HIST !== 'undefined' ? D_HIST : {});
+    const rows = Object.values(agg)
+      .map(g => {
+        const d = byId[g.id] || byName[normName(g.a)] || {};
+        return { g, d, avg: g.cnt ? g.w / g.cnt : 0 };
+      })
+      .sort((x, y) => (x.d.n || x.g.a).localeCompare(y.d.n || y.g.a));
+
+    $('fn-qa-tbody').innerHTML = rows.length ? rows.map(({ g, d, avg }) => {
+      const h = hist[g.id];
+      const histTxt = h
+        ? Object.entries(h).map(([f, items]) =>
+            items.map(i => `${{ fn: 'Function', am: 'AM', mgr: 'Manager' }[f] || f}: ${i.v} (until ${i.until})`).join('; ')
+          ).join(' | ')
+        : '';
+      return `<tr>
+        <td>${esc(d.n || g.a || g.id)}${d.id ? ` <span class="fn-qa-id">${esc(d.id)}</span>` : ''}</td>
+        <td>${esc(d.am || '—')}</td>
+        <td>${esc(d.mgr || '—')}</td>
+        <td>${esc(d.pos || '—')}</td>
+        <td class="col-num">${g.cnt.toLocaleString()}</td>
+        <td class="col-num">${fmtScore(avg)}</td>
+        <td class="fn-qa-hist">${histTxt ? esc(histTxt) : '<span class="fn-qa-hist-none">—</span>'}</td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="7" class="fn-qa-empty">No QA audits resolved to this function yet.</td></tr>';
+  }
+
+  return { render };
 })();
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -4603,11 +4788,14 @@ const RAIL = (() => {
     try { localStorage.setItem(KEY, c ? '1' : '0'); } catch (_) {}
   }
 
-  // If a non-live function's Under Construction view is showing,
-  // return to the live function before routing to a module page.
+  // If a non-full function view (Under Construction or QA-only) is
+  // showing, return to the default function before routing to a module page.
   function ensureLiveFn() {
-    const uc = document.getElementById('orbit-fn-uc');
-    if (uc && !uc.classList.contains('is-hidden')) FN.select('disputes-intakes', false);
+    const blocked = ['orbit-fn-uc', 'orbit-fn-qa'].some(id => {
+      const el = document.getElementById(id);
+      return el && !el.classList.contains('is-hidden');
+    });
+    if (blocked) FN.select('disputes-intakes', false);
   }
 
   function mark(btn) {
