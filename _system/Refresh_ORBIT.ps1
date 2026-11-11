@@ -537,7 +537,8 @@ $FN_QA_SRC = @{ 'cob'=1461; 'iqt'=1144; 'non-cob'=4012; 'prepay'=2194 }
 $fnMeta = @()
 foreach ($k in $FN_KEYS.Values | Sort-Object -Unique) {
     $members = @($dimRows | Where-Object { $_.fn -eq $k })
-    $p = @($prodRows | Where-Object { (FnOfRow $null $_.a) -eq $k }).Count
+    # Prod rows = DI Consolidated tracker = D&I work regardless of roster fn
+    $p = if ($k -eq 'disputes-intakes') { $prodRows.Count } else { 0 }
     $q = 0
     foreach ($r in $qaRows) { if ((FnOfRow $r.id $r.a) -eq $k) { $q += [Math]::Max(1,$r.cnt) } }
     $qSrc = $FN_QA_SRC[$k]

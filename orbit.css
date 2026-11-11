@@ -1334,6 +1334,15 @@ img,svg { display: block; max-width: 100%; }
   letter-spacing: .12em; text-transform: uppercase;
   color: var(--cyan);
 }
+.fn-qa-pending {
+  padding: 12px 18px;
+  border: 1px dashed var(--turquoise-pale);
+  border-radius: 12px;
+  background: rgba(255,255,255,.03);
+  font: 600 11.5px/1.5 var(--font-ui, 'Inter', sans-serif);
+  color: var(--cyan-pale);
+}
+.fn-qa-pending.is-hidden { display: none; }
 .fn-qa-id { color: var(--cyan); font-size: 9.5px; letter-spacing: .05em; }
 .fn-qa-hist { font-size: 10.5px; color: var(--ink-dim, #55506b); }
 .fn-qa-hist-none, .fn-qa-empty { color: var(--ink-dim, #55506b); }

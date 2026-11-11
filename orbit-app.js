@@ -133,7 +133,12 @@ function fnOf(r) {
   }
   return 'un';
 }
-function P()    { return D_PROD.filter(r => fnOf(r) === CUR_FN); }
+// Production rows carry no function tag — the productivity extract IS the
+// DI Consolidated tracker, i.e. Disputes & Intakes work by definition.
+// Output by loaned associates belongs to the work performed (D&I), never
+// to the employee's current roster function.
+const PROD_FN = 'disputes-intakes';
+function P()    { return CUR_FN === PROD_FN ? D_PROD : []; }
 function Q()    { return D_QA.filter(r => fnOf(r) === CUR_FN); }
 function MGRS() { return [...new Set([...P(), ...Q()].map(r => r.m))].filter(Boolean).sort(); }
 function DIM_FN() { return (typeof D_DIM !== 'undefined' ? D_DIM : []).filter(d => d.fn === CUR_FN); }
@@ -4758,6 +4763,10 @@ const FNQA = (() => {
     const hist = (typeof D_HIST !== 'undefined' ? D_HIST : {});
     // All roster associates appear (current assignment = D_DIM);
     // QA metrics merge in where extract rows exist.
+    // Banner when source-system audits exist but no detail rows extracted yet
+    const pendingEl = $('fn-qa-pending');
+    if (pendingEl) pendingEl.classList.toggle('is-hidden', !(meta.qa_src && !qRows.length));
+
     const rows = dim.map(d => {
       const g = agg[d.id] || Object.values(agg).find(x => normName(x.a) === normName(d.n));
       return { g: g || { cnt: 0, w: 0 }, d, avg: g && g.cnt ? g.w / g.cnt : null };

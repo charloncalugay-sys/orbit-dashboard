@@ -70,10 +70,10 @@ def fn_of(r):
         if tok and tok == ctok: return cands[0][1]
     return 'un'
 
+# Production rows are D&I-tracker work by definition — they always score to
+# Disputes & Intakes regardless of the associate's current roster function.
 prod_c, qa_c = {k: 0 for k in FN_ORDER}, {k: 0 for k in FN_ORDER}
-for r in prod:
-    k = fn_of(r)
-    if k in prod_c: prod_c[k] += 1
+prod_c['disputes-intakes'] = len(prod)
 for r in qa:
     k = fn_of(r)
     if k in qa_c: qa_c[k] += r.get('cnt') or 1

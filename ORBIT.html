@@ -155,17 +155,17 @@
           <span class="orbit-rail__label">Disputes and Intakes</span>
           <span class="orbit-fn__badge orbit-fn__badge--live">Live</span>
         </button>
-        <button class="orbit-fn__btn" type="button" data-fn="dispute-triage" data-live="full" title="DISPUTE TRIAGE">
+        <button class="orbit-fn__btn" type="button" data-fn="dispute-triage" data-live="qa" title="DISPUTE TRIAGE">
           <span class="orbit-rail__label">DISPUTE TRIAGE</span>
-          <span class="orbit-fn__badge orbit-fn__badge--live">Live</span>
+          <span class="orbit-fn__badge orbit-fn__badge--live">QA</span>
         </button>
-        <button class="orbit-fn__btn" type="button" data-fn="cash-control" data-live="full" title="Cash Control">
+        <button class="orbit-fn__btn" type="button" data-fn="cash-control" data-live="qa" title="Cash Control">
           <span class="orbit-rail__label">Cash Control</span>
-          <span class="orbit-fn__badge orbit-fn__badge--live">Live</span>
+          <span class="orbit-fn__badge orbit-fn__badge--live">QA</span>
         </button>
-        <button class="orbit-fn__btn" type="button" data-fn="collections" data-live="full" title="Collections">
+        <button class="orbit-fn__btn" type="button" data-fn="collections" data-live="qa" title="Collections">
           <span class="orbit-rail__label">Collections</span>
-          <span class="orbit-fn__badge orbit-fn__badge--live">Live</span>
+          <span class="orbit-fn__badge orbit-fn__badge--live">QA</span>
         </button>
         <button class="orbit-fn__btn" type="button" data-fn="cob" data-live="qa" title="COB">
           <span class="orbit-rail__label">COB</span>
@@ -1341,6 +1341,11 @@
     </section>
 
     <div class="fn-qa-leads" id="fn-qa-leads" aria-label="Leadership assignments"></div>
+
+    <div class="fn-qa-pending is-hidden" id="fn-qa-pending" role="status">
+      QA detail extraction pending &mdash; audit records are being onboarded to ORBIT.
+      Associate roster and leadership assignments shown below are current.
+    </div>
 
     <div class="orbit-table-section lp-section">
       <div class="lp-section__head">
