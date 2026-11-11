@@ -645,6 +645,7 @@ function updatePeriodBadge() {
 function buildMonthPills() {
   const container = document.getElementById('month-pills');
   if (!container) return;
+  container.innerHTML = '';   // rebuild is idempotent — function switching must not duplicate pills
   const months = uniqueSorted(P(), 'ym');
 
   const allPill = document.createElement('button');
@@ -668,7 +669,7 @@ function buildMonthPills() {
 
 function setMonth(m) {
   STATE.month = m;
-  document.querySelectorAll('.orbit-pill').forEach(p => {
+  document.querySelectorAll('#month-pills .orbit-pill').forEach(p => {
     p.classList.toggle('is-active', p.dataset.month === m);
   });
   refresh();
@@ -698,11 +699,11 @@ function buildManagerSelect() {
     sel.appendChild(opt);
   });
 
-  sel.addEventListener('change', () => {
+  sel.onchange = () => {   // property handler — safe to rebuild on function switch
     STATE.manager = sel.value;
     refresh();
     rerenderActivePage();
-  });
+  };
 }
 
 /* ── Sort ───────────────────────────────────────────────────── */
