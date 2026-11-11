@@ -1,4 +1,4 @@
-﻿# ============================================================
+# ============================================================
 # PROJECT ORBIT - One-Click Refresh + GitHub Publish
 # Steps:
 #   0. Timestamped backup: ORBIT.html / orbit-app.js / orbit.css
@@ -36,6 +36,7 @@
 # under T-Payment Integrity\Cha\ORBIT) is a read-only mirror that receives
 # published artifacts via git pull after every successful push (see STEP 5).
 $WORKBOOK  = "C:\Users\AL70683\OneDrive - Elevance Health\IGNITE PROJECTS\ORBIT\PI DI Dashboard.xlsx"
+$ROSTER    = "C:\Users\AL70683\OneDrive - Elevance Health\IGNITE PROJECTS\TEMPUS\CGS SBF PI Roster 08.10.26.xlsx"
 $DASH_DIR  = "C:\Users\AL70683\OneDrive - Elevance Health\IGNITE PROJECTS\ORBIT\ORBIT DASH"
 $SYS_DIR   = "$DASH_DIR\_system"   # backend/admin files - not exposed to end users
 $HTML_FILE = "$DASH_DIR\ORBIT.html"
@@ -442,6 +443,190 @@ foreach ($r in $assocRows) {
 $allMgrs = ($orgMgrs + $qaMgrs) | Sort-Object -Unique | Where-Object { $_ -ne "" }
 $mparts  = ($allMgrs | ForEach-Object { "`"$(EscJ $_)`"" }) -join ","
 [void]$sb.Append("const D_MANAGERS=[$mparts];`n")
+
+# ==========================================================================
+# ROSTER = FUNCTION AUTHORITY
+# Reads CGS SBF PI Roster (Table1: OPR ID | ASSOCIATES | Assistant Manager |
+# Function | Manager | POSITION | TOWER | HIRE DATE) and emits:
+#   D_FN      {byId,byName}  - record -> function classification
+#   D_DIM     [enriched Dim_Associate] - CURRENT fn/am/mgr/pos/tower/hire
+#   D_FN_META [per-function maturity] - full | qa | prod | uc
+#   D_HIST    {id:{field:[{v,until}]}} - movement history, display-only
+# ==========================================================================
+$FN_KEYS = @{
+    'Cash Control'          = 'cash-control'
+    'COB'                   = 'cob'
+    'Collections'           = 'collections'
+    'DISPUTE TRIAGE'        = 'dispute-triage'
+    'Disputes and Intakes'  = 'disputes-intakes'
+    'IQT'                   = 'iqt'
+    'NON COB'               = 'non-cob'
+    'Prepay'                = 'prepay'
+}
+$FN_LABEL = @{}; foreach ($k in $FN_KEYS.Keys) { $FN_LABEL[$FN_KEYS[$k]] = $k }
+$fnById   = @{}
+$fnByName = @{}
+$dimRows  = [System.Collections.ArrayList]::new()   # enriched Dim_Associate
+$rosterRead = $false
+if (Test-Path $ROSTER) {
+    $rxl = $null; $rb = $null
+    try {
+        $rxl = New-Object -ComObject Excel.Application
+        $rxl.Visible = $false; $rxl.DisplayAlerts = $false
+        $rxl.ScreenUpdating = $false; $rxl.EnableEvents = $false
+        $rb  = $rxl.Workbooks.Open($ROSTER, 0, $true)
+        $rws = $rb.Worksheets.Item("Table1")
+        $ur  = $rws.UsedRange.Value2
+        for ($rr = 2; $rr -le $ur.GetLength(0); $rr++) {
+            $rid = "$($ur[$rr,1])".Trim()
+            $rnm = "$($ur[$rr,2])".Trim()
+            $ram = "$($ur[$rr,3])".Trim()
+            $rfn = "$($ur[$rr,4])".Trim()
+            $rmg = "$($ur[$rr,5])".Trim()
+            $rps = "$($ur[$rr,6])".Trim()
+            $rtw = "$($ur[$rr,7])".Trim()
+            $rhd = "$($ur[$rr,8])".Trim()
+            if ($rid -and $FN_KEYS.ContainsKey($rfn)) {
+                $fnKey = $FN_KEYS[$rfn]
+                $fnById[$rid] = $fnKey
+                if ($rnm) { $fnByName[$rnm] = $fnKey }
+                $null = $dimRows.Add([PSCustomObject]@{
+                    id=$rid; n=$rnm; fn=$fnKey; am=$ram; mgr=$rmg
+                    pos=$rps; tower=$rtw; hire=$rhd
+                })
+            }
+        }
+        $rosterRead = $true
+        Log ("  D_FN: " + $fnById.Count + " associates mapped from roster") Green
+    } catch {
+        Log "  [WARN] Roster read failed: $($_.Exception.Message)" Yellow
+        Log "  D_FN will be empty - app falls back to unclassified." Yellow
+    } finally {
+        if ($rb)  { $rb.Close($false) }
+        if ($rxl) { $rxl.Quit(); [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($rxl) }
+    }
+} else {
+    Log "  [WARN] Roster not found: $ROSTER" Yellow
+    Log "  D_FN will be empty - app falls back to unclassified." Yellow
+}
+
+# -- fnOf mirror: id -> exact name -> unique-last-name+first-token ----------
+$fnLastIdx = @{}
+foreach ($n in $fnByName.Keys) {
+    $last = ($n -split ',')[0].Trim().ToLower()
+    if (-not $fnLastIdx.ContainsKey($last)) { $fnLastIdx[$last] = [System.Collections.ArrayList]::new() }
+    $null = $fnLastIdx[$last].Add(@($n, $fnByName[$n]))
+}
+function FnOfRow($id, $name) {
+    if ($id -and $fnById.ContainsKey($id)) { return $fnById[$id] }
+    $nm = "$name".Trim()
+    if ($nm -and $fnByName.ContainsKey($nm)) { return $fnByName[$nm] }
+    if (-not $nm) { return 'un' }
+    $cand = $fnLastIdx[($nm -split ',')[0].Trim().ToLower()]
+    if ($cand -and $cand.Count -eq 1) {
+        $tok  = (($nm -split ',')[1]).Trim().Split(' ')[0]
+        $ctok = (($cand[0][0] -split ',')[1]).Trim().Split(' ')[0]
+        if ($tok -and $tok -eq $ctok) { return $cand[0][1] }
+    }
+    return 'un'
+}
+
+# -- D_FN_META: per-function maturity (full | qa | prod | uc) ---------------
+$fnMeta = @()
+foreach ($k in $FN_KEYS.Values | Sort-Object -Unique) {
+    $members = @($dimRows | Where-Object { $_.fn -eq $k })
+    $p = @($prodRows | Where-Object { (FnOfRow $null $_.a) -eq $k }).Count
+    $q = 0
+    foreach ($r in $qaRows) { if ((FnOfRow $r.id $r.a) -eq $k) { $q += [Math]::Max(1,$r.cnt) } }
+    $state = if ($p -and $q) { 'full' } elseif ($q) { 'qa' } elseif ($p) { 'prod' } else { 'uc' }
+    $fnMeta += [ordered]@{
+        key=$k; name=$FN_LABEL[$k]
+        state=$state; prod=$p; qa=$q; assoc=$members.Count
+        ams=@($members | Select-Object -ExpandProperty am -Unique | Where-Object { $_ } | Sort-Object)
+        mgrs=@($members | Select-Object -ExpandProperty mgr -Unique | Where-Object { $_ } | Sort-Object)
+    }
+}
+Log "  D_FN_META: " + (($fnMeta | ForEach-Object { "$($_.key)=$($_.state)" }) -join ', ') Gray
+
+# -- Unclassified diagnostic ------------------------------------------------
+$fnUnNames = @{}
+foreach ($r in $prodRows) {
+    $n = $r.a
+    if (-not $n -or (FnOfRow $null $n) -ne 'un') { continue }
+    $fnUnNames[$n] = ($fnUnNames[$n] + 1)
+}
+$fnUnIds = @($assocRows | Where-Object { $_.id -and -not $fnById.ContainsKey($_.id) })
+[ordered]@{
+    generated        = (Get-Date -Format 'yyyy-MM-dd HH:mm')
+    rosterFound      = $rosterRead
+    rosterMapped     = $fnById.Count
+    unclassifiedProd = ($fnUnNames.GetEnumerator() | ForEach-Object { @{ name = $_.Key; rows = $_.Value } })
+    unclassifiedIds  = ($fnUnIds | ForEach-Object { @{ id = $_.id; name = $_.n } })
+} | ConvertTo-Json -Depth 4 | Set-Content "$SYS_DIR\fn_unclassified.json" -Encoding UTF8
+Log ("  Unclassified: " + $fnUnNames.Count + " prod names, " + $fnUnIds.Count + " assoc ids  (_system\fn_unclassified.json)") Yellow
+
+# -- Associate movement history (D_HIST) -------------------------------------
+# assoc_history.csv accumulates fn/am/mgr changes detected between roster
+# snapshots. Current assignment (D_DIM) always wins; history is display-only.
+$HIST_CSV = "$SYS_DIR\assoc_history.csv"
+$PREV_CSV = "$SYS_DIR\roster_prev.csv"
+$histRows = [System.Collections.ArrayList]::new()
+if (Test-Path $HIST_CSV) {
+    Import-Csv $HIST_CSV | ForEach-Object { $null = $histRows.Add($_) }
+}
+if (Test-Path $PREV_CSV) {
+    $prev = @{}
+    Import-Csv $PREV_CSV | ForEach-Object { $prev[$_.'ASSOCIATE OPR ID'.Trim()] = $_ }
+    $today = Get-Date -Format 'yyyy-MM-dd'
+    $newMoves = 0
+    foreach ($d in $dimRows) {
+        $p = $prev[$d.id]
+        if (-not $p) { continue }
+        $checks = @(
+            @{ fld='fn';  old="$($p.Function)".Trim();            new=$d.fn },
+            @{ fld='am';  old="$($p.'Assistant Manager')".Trim(); new=$d.am },
+            @{ fld='mgr'; old="$($p.Manager)".Trim();             new=$d.mgr }
+        )
+        foreach ($c in $checks) {
+            if ($c.old -and $c.new -and $c.old -ne $c.new) {
+                $exists = $histRows | Where-Object {
+                    $_.id -eq $d.id -and $_.field -eq $c.fld -and $_.prev -eq $c.old -and $_.until -eq $today }
+                if (-not $exists) {
+                    $null = $histRows.Add([PSCustomObject]@{ id=$d.id; n=$d.n; field=$c.fld; prev=$c.old; until=$today })
+                    $newMoves++
+                }
+            }
+        }
+    }
+    if ($newMoves -gt 0) { Log "  D_HIST: $newMoves workforce movement(s) recorded" Yellow }
+}
+$histRows | Export-Csv $HIST_CSV -NoTypeInformation -Encoding UTF8
+# Snapshot current roster for next-run diffing
+$dimRows | ForEach-Object {
+    [PSCustomObject]@{
+        'ASSOCIATE OPR ID'=$_.id; 'ASSOCIATES'=$_.n; 'Assistant Manager'=$_.am
+        'Function'=$FN_LABEL[$_.fn]
+        'Manager'=$_.mgr; 'POSITION'=$_.pos; 'TOWER'=$_.tower; 'HIRE DATE'=$_.hire
+    }
+} | Export-Csv $PREV_CSV -NoTypeInformation -Encoding UTF8
+
+# -- Emit roster-driven constants -------------------------------------------
+$fnJs = @{ byId = $fnById; byName = $fnByName } | ConvertTo-Json -Compress -Depth 3
+[void]$sb.Append("const D_FN=$fnJs;`n")
+
+$dimJs = $dimRows | ConvertTo-Json -Compress -Depth 2
+if ($dimRows.Count -eq 1) { $dimJs = "[$dimJs]" }
+[void]$sb.Append("const D_DIM=$dimJs;`n")
+
+[void]$sb.Append("const D_FN_META=" + ($fnMeta | ConvertTo-Json -Compress -Depth 3) + ";`n")
+
+$histById = @{}
+foreach ($h in $histRows) {
+    if (-not $histById.ContainsKey($h.id)) { $histById[$h.id] = @{} }
+    if (-not $histById[$h.id].ContainsKey($h.field)) { $histById[$h.id][$h.field] = @() }
+    $histById[$h.id][$h.field] += @{ v=$h.prev; until=$h.until }
+}
+[void]$sb.Append("const D_HIST=" + ($histById | ConvertTo-Json -Compress -Depth 4) + ";`n")
 
 [System.IO.File]::WriteAllText("$DASH_DIR\orbit-data.js", $sb.ToString(), [System.Text.Encoding]::UTF8)
 
