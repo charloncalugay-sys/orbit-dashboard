@@ -140,8 +140,19 @@ function fnOf(r) {
 const PROD_FN = 'disputes-intakes';
 function P()    { return CUR_FN === PROD_FN ? D_PROD : []; }
 function Q()    { return D_QA.filter(r => fnOf(r) === CUR_FN); }
-function MGRS() { return [...new Set([...P(), ...Q()].map(r => r.m))].filter(Boolean).sort(); }
+function MGRS() {
+  const s = [...new Set([...P(), ...Q()].map(r => r.m))].filter(Boolean).sort();
+  // QA-pending functions have no rows yet — fall back to roster managers
+  return s.length ? s : [...new Set(DIM_FN().map(d => d.mgr))].filter(Boolean).sort();
+}
 function DIM_FN() { return (typeof D_DIM !== 'undefined' ? D_DIM : []).filter(d => d.fn === CUR_FN); }
+const FMETA = () => (typeof FN !== 'undefined' && FN.META[CUR_FN]) || {};
+
+// Function-level data availability (independent of period filters):
+//  PENDING_PROD — no productivity extract exists for this function at all
+//  PENDING_QA   — source-system audits exist but detail rows aren't extracted
+let PENDING_PROD = false;
+let PENDING_QA   = false;
 function unclassifiedAssocCount() {
   const s = new Set();
   D_PROD.forEach(r => { if (r.a && fnOf(r) === 'un') s.add('n:' + r.a); });
@@ -236,16 +247,26 @@ function computeAssocTable(prodRows, qaRows) {
     const wScr = rows.reduce((s, r) => s + (r.cnt || 0) * (r.scr || 0), 0);
     if (!assocMap[name]) {
       // QA-only associate: manager from D_QA[m]
-      assocMap[name] = { name, manager: rows[0].m, act: 0, tgt: 0, qaCnt: 0, qaScr: 0 };
+      assocMap[name] = { name, manager: rows[0].m, act: null, tgt: null, qaCnt: 0, qaScr: 0 };
     }
     assocMap[name].qaCnt += cnt;
     assocMap[name].qaScr += wScr;
   });
 
+  // Roster fallback: every currently-assigned associate appears even when
+  // they have no rows yet — productivity-pending functions still show their
+  // full roster in the detail table.
+  if (PENDING_PROD) {
+    DIM_FN().forEach(d => {
+      if (d.n && !assocMap[d.n])
+        assocMap[d.n] = { name: d.n, manager: d.mgr, act: null, tgt: null, qaCnt: 0, qaScr: 0 };
+    });
+  }
+
   return Object.values(assocMap).map(r => ({
     ...r,
-    variance: r.act - r.tgt,
-    prodPct:  r.tgt > 0 ? r.act / r.tgt : 0,
+    variance: r.act == null ? null : r.act - (r.tgt || 0),
+    prodPct:  (r.tgt || 0) > 0 ? r.act / r.tgt : null,
     avgQA:    r.qaCnt > 0 ? r.qaScr / r.qaCnt : null,
   }));
 }
@@ -286,6 +307,19 @@ Chart.defaults.font.size   = 11;
 Chart.defaults.plugins.legend.display = false;
 
 function destroyChart(ref) { if (ref) { try { ref.destroy(); } catch(e) {} } }
+
+// Overlay message inside a chart-body — used for "Pending Integration" /
+// "Pending Extract" states without changing the dashboard layout.
+function setChartPending(canvasId, msg) {
+  const c = document.getElementById(canvasId);
+  if (!c || !c.parentElement) return;
+  const wrap = c.parentElement;
+  let el = wrap.querySelector('.chart-pending');
+  if (msg) {
+    if (!el) { el = document.createElement('div'); el.className = 'chart-pending'; wrap.appendChild(el); }
+    el.textContent = msg;
+  } else if (el) el.remove();
+}
 
 function renderTrendChart(weeklyData) {
   const canvas = document.getElementById('chart-trend');
@@ -494,15 +528,19 @@ function renderTable(assocRows) {
   }
 
   const maxPct = Math.max(...sorted.map(r => r.prodPct || 0), 0.01);
+  const PEND_I = '<span class="cell-pending">Pending Integration</span>';
+  const PEND_E = '<span class="cell-pending">Pending Extract</span>';
+  const numOr = v => v == null ? (PENDING_PROD ? PEND_I : '—') : fmt.num(v);
   const rows = sorted.map((r, i) => {
-    const pct      = r.prodPct || 0;
-    const barW     = clamp(Math.round((pct / Math.max(maxPct, 1.2)) * 100), 0, 100);
-    const barClass = pct >= 1.0 ? 'is-above' : pct < 0.9 ? 'is-below' : '';
-    const varClass = r.variance >= 0 ? 'is-positive' : 'is-negative';
+    const pct      = r.prodPct;
+    const barW     = pct == null ? 0 : clamp(Math.round((pct / Math.max(maxPct, 1.2)) * 100), 0, 100);
+    const barClass = pct == null ? '' : pct >= 1.0 ? 'is-above' : pct < 0.9 ? 'is-below' : '';
+    const varClass = r.variance == null ? '' : r.variance >= 0 ? 'is-positive' : 'is-negative';
     const qaScore  = r.avgQA;
     const qaSt     = qaStatus(qaScore);   // 'pass' | 'fail' | null
     const qaClass  = qaSt === 'pass' ? 'is-pass' : qaSt === 'fail' ? 'is-fail' : '';
-    const qaStr    = qaScore != null ? fmt.pct(qaScore) : '—';
+    const qaStr    = qaScore != null ? fmt.pct(qaScore)
+                   : (PENDING_QA && r.qaCnt === 0 ? PEND_E : '—');
     // Badge: dot + label, tooltip shows threshold
     const qaBadge  = qaSt != null
       ? `<span class="qa-badge qa-badge--${qaSt}" title="PI QA threshold: 98.50%">${qaSt === 'pass' ? '● PASS' : '● FAIL'}</span>`
@@ -512,12 +550,12 @@ function renderTable(assocRows) {
       <td class="col-rank">${i + 1}</td>
       <td class="col-associate">${escHtml(r.name)}</td>
       <td class="col-manager">${escHtml(r.manager)}</td>
-      <td class="col-num">${fmt.num(r.act)}</td>
-      <td class="col-num">${fmt.num(r.tgt)}</td>
-      <td class="col-variance ${varClass}">${fmt.sign(r.variance)}</td>
+      <td class="col-num">${numOr(r.act)}</td>
+      <td class="col-num">${numOr(r.tgt)}</td>
+      <td class="col-variance ${varClass}">${r.variance == null ? (PENDING_PROD ? PEND_I : '—') : fmt.sign(r.variance)}</td>
       <td class="col-pct">
         <div class="pct-cell">
-          <span class="pct-cell__value">${fmt.pct(pct)}</span>
+          <span class="pct-cell__value">${pct == null ? (PENDING_PROD ? PEND_I : '—') : fmt.pct(pct)}</span>
           <div class="pct-cell__bar-track">
             <div class="pct-cell__bar-fill ${barClass}" style="width:${barW}%"></div>
           </div>
@@ -538,15 +576,29 @@ function renderTable(assocRows) {
 /* ── KPI cards ──────────────────────────────────────────────── */
 function renderKPIs(kpis) {
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-  set('kpi-actual',   fmt.num(kpis.totalAct));
-  set('kpi-target',   fmt.num(kpis.totalTgt));
-  set('kpi-pct',      fmt.pct(kpis.prodPct));
-  set('kpi-qa-score', kpis.avgQA > 0 ? fmt.pct(kpis.avgQA) : '—');
-  set('kpi-qa-count', fmt.num(kpis.totalCnt));
-  set('kpi-audited',  fmt.num(kpis.audited));
+  const pend = id => { const el = document.getElementById(id); if (el) el.classList.add('kpi-value--pending'); };
+  const unpend = id => { const el = document.getElementById(id); if (el) el.classList.remove('kpi-value--pending'); };
+  const meta = FMETA();
+
+  // Productivity — pending when the function has no extract at all
+  set('kpi-actual', PENDING_PROD ? 'Pending Integration' : fmt.num(kpis.totalAct));
+  set('kpi-target', PENDING_PROD ? 'Pending Integration' : fmt.num(kpis.totalTgt));
+  set('kpi-pct',    PENDING_PROD ? 'Pending Integration' : fmt.pct(kpis.prodPct));
+  ['kpi-actual','kpi-target','kpi-pct'].forEach(id => PENDING_PROD ? pend(id) : unpend(id));
+
+  // QA — 'Pending Extract' when source audits exist but no detail rows yet
+  set('kpi-qa-score', kpis.avgQA > 0 ? fmt.pct(kpis.avgQA) : PENDING_QA ? 'Pending Extract' : '—');
+  set('kpi-qa-count', PENDING_QA ? meta.qa_src.toLocaleString() : fmt.num(kpis.totalCnt));
+  set('kpi-audited',  PENDING_QA ? 'Pending Extract' : fmt.num(kpis.audited));
+  ['kpi-qa-score','kpi-qa-count','kpi-audited'].forEach(id => (PENDING_QA && id !== 'kpi-qa-count') ? pend(id) : unpend(id));
+  const qaCntSub = document.querySelector('.kpi-card--qa-count .kpi-sub');
+  if (qaCntSub) qaCntSub.textContent = PENDING_QA ? 'source system — extract pending' : 'Total transactions';
 
   const pctEl = document.getElementById('kpi-pct-sub');
-  if (pctEl) {
+  if (pctEl && PENDING_PROD) {
+    pctEl.className = 'kpi-sub';
+    pctEl.textContent = 'productivity onboarding in progress';
+  } else if (pctEl) {
     const delta = kpis.prodPct - 1.0;
     pctEl.className = delta >= 0 ? 'kpi-sub kpi-sub--up' : 'kpi-sub kpi-sub--down';
     pctEl.textContent = (delta >= 0 ? '+' : '') + (delta * 100).toFixed(1) + '% vs target';
@@ -579,9 +631,14 @@ function renderKPIs(kpis) {
       qaCard.classList.add(st === 'pass' ? 'kpi-card--qa-pass' : 'kpi-card--qa-fail');
     }
   } else {
-    // No QA data
+    // No QA data in extract — distinguish "extract pending" from "no data"
     if (qaValEl) qaValEl.classList.remove('qa-kpi-pass', 'qa-kpi-fail');
-    if (qaEl) { qaEl.className = 'kpi-sub'; qaEl.textContent = 'No audit data'; }
+    if (qaEl) {
+      qaEl.className = 'kpi-sub';
+      qaEl.textContent = PENDING_QA
+        ? `${meta.qa_src.toLocaleString()} audits in source system — extraction pending`
+        : 'No audit data';
+    }
     if (qaCard) qaCard.classList.remove('kpi-card--qa-pass', 'kpi-card--qa-fail');
   }
 
@@ -646,7 +703,12 @@ function buildMonthPills() {
   const container = document.getElementById('month-pills');
   if (!container) return;
   container.innerHTML = '';   // rebuild is idempotent — function switching must not duplicate pills
-  const months = uniqueSorted(P(), 'ym');
+  // Timeline covers prod months AND QA audit months (QA-only functions
+  // still need a period filter for their QA data).
+  const months = [...new Set([
+    ...P().map(r => r.ym),
+    ...Q().map(r => r.d && r.d.slice(0, 7)),
+  ].filter(Boolean))].sort();
 
   const allPill = document.createElement('button');
   allPill.className = 'orbit-pill is-active';
@@ -753,6 +815,11 @@ function initTableSearch() {
 
 /* ── Main refresh ───────────────────────────────────────────── */
 function refresh() {
+  // Function-level availability (unfiltered) — filters can empty the
+  // window without meaning the function lacks data.
+  PENDING_PROD = P().length === 0;
+  PENDING_QA   = Q().length === 0 && !!(FMETA().qa_src);
+
   const prod     = filterProd(STATE.month, STATE.manager);
   const qa       = filterQA(STATE.month, STATE.manager);
   const kpis     = computeKPIs(prod, qa);
@@ -766,6 +833,12 @@ function refresh() {
   updatePeriodBadge();
   trendChart = renderTrendChart(weekly);
   qaChart    = renderQAChart(qaMonths);
+
+  // Empty-state overlays — layout stays identical, only data changes
+  setChartPending('chart-trend',
+    PENDING_PROD ? 'Pending Integration' : weekly.length ? null : 'No data for current filters');
+  setChartPending('chart-qa',
+    qaMonths.length ? null : (PENDING_QA ? 'Pending Extract' : 'No audit data'));
 
   const ts = document.getElementById('last-updated');
   if (ts) ts.textContent = 'Updated ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
@@ -4640,8 +4713,6 @@ const FN = (() => {
       p.classList.toggle('is-hidden', !pages ? true : p.classList.contains('is-hidden')));
     const ucEl = document.getElementById('orbit-fn-uc');
     if (ucEl) ucEl.classList.toggle('is-hidden', !uc);
-    const qvEl = document.getElementById('orbit-fn-qa');
-    if (qvEl) qvEl.classList.toggle('is-hidden', !qv);
   }
 
   function select(key, persist = true) {
@@ -4657,7 +4728,9 @@ const FN = (() => {
     });
 
     const state = stateOf(btn);
-    if (state === 'full' || state === 'prod') {
+    if (state === 'full' || state === 'prod' || state === 'qa') {
+      // Maturity affects data availability, never layout — every live
+      // function uses the identical ORBIT dashboard.
       setViews({ bars: true, pages: true, uc: false, qv: false });
       // Function switch resets the period filters — months/managers
       // are rebuilt against the newly scoped dataset.
@@ -4669,9 +4742,6 @@ const FN = (() => {
       const page = active ? active.dataset.page : 'overview';
       PAGE_NAV.activate(page);
       PAGE_NAV.rerender(page);
-    } else if (state === 'qa') {
-      setViews({ bars: false, pages: false, uc: false, qv: true });
-      FNQA.render(key);
     } else {
       setViews({ bars: false, pages: false, uc: true, qv: false });
       const el = document.getElementById('orbit-fn-uc-name');
@@ -4711,102 +4781,6 @@ const FN = (() => {
 })();
 
 /* ═══════════════════════════════════════════════════════════════════════
-   FNQA — QA-state function landing page (#orbit-fn-qa)
-   Shown when a function has QA data but no productivity integration yet.
-   Displays QA metrics, roster associate counts, leadership assignments,
-   and per-associate QA detail. Workforce history (D_HIST) is shown
-   informationally — current assignment always stays authoritative.
-   ═══════════════════════════════════════════════════════════════════════ */
-const FNQA = (() => {
-  const $ = id => document.getElementById(id);
-  const esc = s => String(s ?? '').replace(/[&<>"]/g,
-    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const fmtScore = v => (v * 100).toFixed(2) + '%';
-
-  function render(key) {
-    const meta  = FN.META[key] || {};
-    const dim   = DIM_FN();
-    const qRows = Q();
-    const name  = FN.NAMES[key] || key;
-
-    $('orbit-fn-qa-name').textContent = name;
-    $('fn-qa-roster').textContent  = meta.assoc ?? dim.length;
-    // qa_src = audits reported in the source QA platform, not yet in the extract
-    if (meta.qa_src && !meta.qa) {
-      $('fn-qa-audits').textContent     = meta.qa_src.toLocaleString();
-      $('fn-qa-audits-sub').textContent = 'source system — extract pending';
-    } else {
-      $('fn-qa-audits').textContent     = (meta.qa ?? qRows.reduce((s, r) => s + (r.cnt || 0), 0)).toLocaleString();
-      $('fn-qa-audits-sub').textContent = 'All periods';
-    }
-    const cnt = qRows.reduce((s, r) => s + (r.cnt || 0), 0);
-    const w   = qRows.reduce((s, r) => s + (r.cnt || 0) * (r.scr || 0), 0);
-    $('fn-qa-score').textContent   = cnt ? fmtScore(w / cnt) : '—';
-    $('fn-qa-audited').textContent = new Set(qRows.map(r => r.id || r.a)).size;
-
-    // Leadership assignments from the roster (current state — D_DIM)
-    const ams  = meta.ams  || [...new Set(dim.map(d => d.am))].filter(Boolean).sort();
-    const mgrs = meta.mgrs || [...new Set(dim.map(d => d.mgr))].filter(Boolean).sort();
-    $('fn-qa-leads').innerHTML =
-      (ams.length ? `<div class="fn-qa-lead"><span class="fn-qa-lead__role">Assistant Managers</span><span>${ams.map(esc).join(' · ')}</span></div>` : '') +
-      (mgrs.length ? `<div class="fn-qa-lead"><span class="fn-qa-lead__role">Managers</span><span>${mgrs.map(esc).join(' · ')}</span></div>` : '');
-
-    // Per-associate QA rollup; roster (D_DIM) is authoritative for assignment.
-    const byId = {}; dim.forEach(d => { byId[d.id] = d; });
-    const byName = {}; dim.forEach(d => { byName[normName(d.n)] = d; });
-    const agg = {};
-    qRows.forEach(r => {
-      const k = r.id || r.a; if (!k) return;
-      (agg[k] = agg[k] || { id: r.id, a: r.a, cnt: 0, w: 0 });
-      agg[k].cnt += r.cnt || 0;
-      agg[k].w   += (r.cnt || 0) * (r.scr || 0);
-    });
-    const hist = (typeof D_HIST !== 'undefined' ? D_HIST : {});
-    // All roster associates appear (current assignment = D_DIM);
-    // QA metrics merge in where extract rows exist.
-    // Banner when source-system audits exist but no detail rows extracted yet
-    const pendingEl = $('fn-qa-pending');
-    if (pendingEl) pendingEl.classList.toggle('is-hidden', !(meta.qa_src && !qRows.length));
-
-    const rows = dim.map(d => {
-      const g = agg[d.id] || Object.values(agg).find(x => normName(x.a) === normName(d.n));
-      return { g: g || { cnt: 0, w: 0 }, d, avg: g && g.cnt ? g.w / g.cnt : null };
-    });
-    // QA rows whose associate isn't on the roster still surface.
-    Object.values(agg).forEach(g => {
-      if (!byId[g.id] && !byName[normName(g.a)])
-        rows.push({ g, d: {}, avg: g.cnt ? g.w / g.cnt : null });
-    });
-    rows.sort((x, y) => (x.d.n || x.g.a || '').localeCompare(y.d.n || y.g.a || ''));
-
-    $('fn-qa-tbody').innerHTML = rows.length ? rows.map(({ g, d, avg }) => {
-      const h = hist[g.id] || hist[d.id];
-      const moYr = iso => {
-        const dt = new Date(iso);
-        return isNaN(dt) ? iso : dt.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-      };
-      const histTxt = h
-        ? Object.entries(h).map(([f, items]) =>
-            items.map(i => `${{ fn: 'Function', am: 'AM', mgr: 'Manager' }[f] || f}: ${i.v} (until ${moYr(i.until)})`).join('; ')
-          ).join(' | ')
-        : '';
-      return `<tr>
-        <td>${esc(d.n || g.a || g.id)}${d.id ? ` <span class="fn-qa-id">${esc(d.id)}</span>` : ''}</td>
-        <td>${esc(d.am || '—')}</td>
-        <td>${esc(d.mgr || '—')}</td>
-        <td>${esc(d.pos || '—')}</td>
-        <td class="col-num">${g.cnt ? g.cnt.toLocaleString() : '—'}</td>
-        <td class="col-num">${avg != null ? fmtScore(avg) : '—'}</td>
-        <td class="fn-qa-hist">${histTxt ? esc(histTxt) : '<span class="fn-qa-hist-none">—</span>'}</td>
-      </tr>`;
-    }).join('') : `<tr><td colspan="7" class="fn-qa-empty">No QA audits in the ORBIT extract yet${
-      meta.qa_src ? ` — ${meta.qa_src.toLocaleString()} audits exist in the source QA platform and are being onboarded` : ''}.</td></tr>`;
-  }
-
-  return { render };
-})();
-
-/* ═══════════════════════════════════════════════════════════════════════
    RAIL — TEMPUS-style left navigation rail
    Section 1 module items route to dashboard pages (PAGE_NAV) or
    Leadership Portal sub-pages (LP.showSub). Leadership-gated items open
@@ -4833,7 +4807,7 @@ const RAIL = (() => {
   // If a non-full function view (Under Construction or QA-only) is
   // showing, return to the default function before routing to a module page.
   function ensureLiveFn() {
-    const blocked = ['orbit-fn-uc', 'orbit-fn-qa'].some(id => {
+    const blocked = ['orbit-fn-uc'].some(id => {
       const el = document.getElementById(id);
       return el && !el.classList.contains('is-hidden');
     });

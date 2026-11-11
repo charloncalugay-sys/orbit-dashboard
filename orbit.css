@@ -337,6 +337,16 @@ img,svg { display: block; max-width: 100%; }
   position: relative; overflow: hidden;
 }
 .chart-body canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
+.chart-pending {
+  position: absolute; inset: 0; z-index: 5;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.82);
+  font: 700 12px/1 var(--font-ui, 'Inter', sans-serif);
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--cyan); pointer-events: none;
+}
+.kpi-value--pending { font-size: .95rem !important; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted) !important; }
+.cell-pending { font-size: .66rem; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--cyan); }
 .chart-legend { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .chart-legend__item { display: flex; align-items: center; gap: 6px; font-size: .66rem; font-weight: 500; color: var(--text-muted); }
 .chart-legend__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
