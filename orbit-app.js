@@ -667,6 +667,15 @@ function setMonth(m) {
     p.classList.toggle('is-active', p.dataset.month === m);
   });
   refresh();
+  rerenderActivePage();
+}
+
+// Re-render whichever page is visible (Daily/Monthly/Leadership share
+// the global Timeline — the filter bar is the single control).
+function rerenderActivePage() {
+  const active = document.querySelector('.orbit-page-tab.is-active');
+  const page = active ? active.dataset.page : 'overview';
+  if (page !== 'overview') PAGE_NAV.rerender(page);
 }
 
 /* ── Manager dropdown ───────────────────────────────────────── */
@@ -687,6 +696,7 @@ function buildManagerSelect() {
   sel.addEventListener('change', () => {
     STATE.manager = sel.value;
     refresh();
+    rerenderActivePage();
   });
 }
 
@@ -912,6 +922,9 @@ const DD = (() => {
   }
 
   function render() {
+    S.month = STATE.month;   // single global Timeline drives all pages
+    if (S.month !== 'all') syncDateToMonth();
+    rebuildAssocSelect();
     ddPage = 1;   // filter/sort changes always reset to page 1
     renderPage();
   }
@@ -1769,6 +1782,7 @@ const MP = (() => {
 
   /* ── Master render ───────────────────────────────────────── */
   function render() {
+    S.month = STATE.month;   // single global Timeline drives all pages
     const rows       = computeRows();
     const monthRows  = computeMonthTrend(rows);
     renderKPIs(rows);
@@ -4711,7 +4725,14 @@ const FNQA = (() => {
 
     $('orbit-fn-qa-name').textContent = name;
     $('fn-qa-roster').textContent  = meta.assoc ?? dim.length;
-    $('fn-qa-audits').textContent  = (meta.qa ?? qRows.reduce((s, r) => s + (r.cnt || 0), 0)).toLocaleString();
+    // qa_src = audits reported in the source QA platform, not yet in the extract
+    if (meta.qa_src && !meta.qa) {
+      $('fn-qa-audits').textContent     = meta.qa_src.toLocaleString();
+      $('fn-qa-audits-sub').textContent = 'source system — extract pending';
+    } else {
+      $('fn-qa-audits').textContent     = (meta.qa ?? qRows.reduce((s, r) => s + (r.cnt || 0), 0)).toLocaleString();
+      $('fn-qa-audits-sub').textContent = 'All periods';
+    }
     const cnt = qRows.reduce((s, r) => s + (r.cnt || 0), 0);
     const w   = qRows.reduce((s, r) => s + (r.cnt || 0) * (r.scr || 0), 0);
     $('fn-qa-score').textContent   = cnt ? fmtScore(w / cnt) : '—';
@@ -4735,18 +4756,28 @@ const FNQA = (() => {
       agg[k].w   += (r.cnt || 0) * (r.scr || 0);
     });
     const hist = (typeof D_HIST !== 'undefined' ? D_HIST : {});
-    const rows = Object.values(agg)
-      .map(g => {
-        const d = byId[g.id] || byName[normName(g.a)] || {};
-        return { g, d, avg: g.cnt ? g.w / g.cnt : 0 };
-      })
-      .sort((x, y) => (x.d.n || x.g.a).localeCompare(y.d.n || y.g.a));
+    // All roster associates appear (current assignment = D_DIM);
+    // QA metrics merge in where extract rows exist.
+    const rows = dim.map(d => {
+      const g = agg[d.id] || Object.values(agg).find(x => normName(x.a) === normName(d.n));
+      return { g: g || { cnt: 0, w: 0 }, d, avg: g && g.cnt ? g.w / g.cnt : null };
+    });
+    // QA rows whose associate isn't on the roster still surface.
+    Object.values(agg).forEach(g => {
+      if (!byId[g.id] && !byName[normName(g.a)])
+        rows.push({ g, d: {}, avg: g.cnt ? g.w / g.cnt : null });
+    });
+    rows.sort((x, y) => (x.d.n || x.g.a || '').localeCompare(y.d.n || y.g.a || ''));
 
     $('fn-qa-tbody').innerHTML = rows.length ? rows.map(({ g, d, avg }) => {
-      const h = hist[g.id];
+      const h = hist[g.id] || hist[d.id];
+      const moYr = iso => {
+        const dt = new Date(iso);
+        return isNaN(dt) ? iso : dt.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      };
       const histTxt = h
         ? Object.entries(h).map(([f, items]) =>
-            items.map(i => `${{ fn: 'Function', am: 'AM', mgr: 'Manager' }[f] || f}: ${i.v} (until ${i.until})`).join('; ')
+            items.map(i => `${{ fn: 'Function', am: 'AM', mgr: 'Manager' }[f] || f}: ${i.v} (until ${moYr(i.until)})`).join('; ')
           ).join(' | ')
         : '';
       return `<tr>
@@ -4754,11 +4785,12 @@ const FNQA = (() => {
         <td>${esc(d.am || '—')}</td>
         <td>${esc(d.mgr || '—')}</td>
         <td>${esc(d.pos || '—')}</td>
-        <td class="col-num">${g.cnt.toLocaleString()}</td>
-        <td class="col-num">${fmtScore(avg)}</td>
+        <td class="col-num">${g.cnt ? g.cnt.toLocaleString() : '—'}</td>
+        <td class="col-num">${avg != null ? fmtScore(avg) : '—'}</td>
         <td class="fn-qa-hist">${histTxt ? esc(histTxt) : '<span class="fn-qa-hist-none">—</span>'}</td>
       </tr>`;
-    }).join('') : '<tr><td colspan="7" class="fn-qa-empty">No QA audits resolved to this function yet.</td></tr>';
+    }).join('') : `<tr><td colspan="7" class="fn-qa-empty">No QA audits in the ORBIT extract yet${
+      meta.qa_src ? ` — ${meta.qa_src.toLocaleString()} audits exist in the source QA platform and are being onboarded` : ''}.</td></tr>`;
   }
 
   return { render };

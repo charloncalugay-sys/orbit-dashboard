@@ -26,6 +26,11 @@ FN_KEYS = {
 }
 FN_ORDER = list(FN_KEYS.values())
 
+# QA exists in the source QA platform for these functions but is not yet
+# wired into the workbook's Fact_QA extract. Values = reported source-system
+# audit volumes; state overridden to 'qa' when the extract shows no data.
+FN_QA_SRC = {'cob': 1461, 'iqt': 1144, 'non-cob': 4012, 'prepay': 2194}
+
 def norm(s): return (s or '').strip()
 
 # ── roster -> D_FN + D_DIM ──────────────────────────────────
@@ -77,10 +82,11 @@ meta = []
 for label, k in FN_KEYS.items():
     members = [d for d in dim if d['fn'] == k]
     p, q = prod_c[k], qa_c[k]
-    state = 'full' if (p and q) else ('qa' if q else ('prod' if p else 'uc'))
+    q_src = FN_QA_SRC.get(k)
+    state = 'full' if (p and q) else ('qa' if (q or q_src) else ('prod' if p else 'uc'))
     meta.append({
         'key': k, 'name': label, 'state': state,
-        'prod': p, 'qa': q, 'assoc': len(members),
+        'prod': p, 'qa': q, 'qa_src': q_src, 'assoc': len(members),
         'ams': sorted({d['am'] for d in members if d['am']}),
         'mgrs': sorted({d['mgr'] for d in members if d['mgr']}),
     })
@@ -100,6 +106,7 @@ if os.path.exists(PREV_CSV):
         if not p: continue
         for fld, col in HIST_FIELDS.items():
             old = norm(p.get(col)); new = d[FIELD_TO_DIM[fld]]
+            if fld == 'fn': old = FN_KEYS.get(old, old)   # prev stores labels; dim stores keys
             if old and new and old != new:
                 hist.append({'id': rid, 'n': d['n'], 'field': fld,
                              'prev': old, 'until': today})

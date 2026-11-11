@@ -151,7 +151,6 @@
       <!-- Section 3 — Payment Integrity functions (drives FN module) -->
       <nav class="orbit-rail__group" aria-label="Payment Integrity functions" id="orbit-fn-list">
         <div class="orbit-rail__heading">PI Functions</div>
-        <div class="orbit-rail__subheading">Live</div>
         <button class="orbit-fn__btn is-active" type="button" data-fn="disputes-intakes" data-live="full" title="Disputes and Intakes">
           <span class="orbit-rail__label">Disputes and Intakes</span>
           <span class="orbit-fn__badge orbit-fn__badge--live">Live</span>
@@ -168,22 +167,21 @@
           <span class="orbit-rail__label">Collections</span>
           <span class="orbit-fn__badge orbit-fn__badge--live">Live</span>
         </button>
-        <div class="orbit-rail__subheading">Coming Soon</div>
-        <button class="orbit-fn__btn" type="button" data-fn="cob" data-live="uc" title="COB">
+        <button class="orbit-fn__btn" type="button" data-fn="cob" data-live="qa" title="COB">
           <span class="orbit-rail__label">COB</span>
-          <span class="orbit-fn__badge orbit-fn__badge--soon">Soon</span>
+          <span class="orbit-fn__badge orbit-fn__badge--live">QA</span>
         </button>
-        <button class="orbit-fn__btn" type="button" data-fn="iqt" data-live="uc" title="IQT">
+        <button class="orbit-fn__btn" type="button" data-fn="iqt" data-live="qa" title="IQT">
           <span class="orbit-rail__label">IQT</span>
-          <span class="orbit-fn__badge orbit-fn__badge--soon">Soon</span>
+          <span class="orbit-fn__badge orbit-fn__badge--live">QA</span>
         </button>
-        <button class="orbit-fn__btn" type="button" data-fn="non-cob" data-live="uc" title="NON COB">
+        <button class="orbit-fn__btn" type="button" data-fn="non-cob" data-live="qa" title="NON COB">
           <span class="orbit-rail__label">NON COB</span>
-          <span class="orbit-fn__badge orbit-fn__badge--soon">Soon</span>
+          <span class="orbit-fn__badge orbit-fn__badge--live">QA</span>
         </button>
-        <button class="orbit-fn__btn" type="button" data-fn="prepay" data-live="uc" title="Prepay">
+        <button class="orbit-fn__btn" type="button" data-fn="prepay" data-live="qa" title="Prepay">
           <span class="orbit-rail__label">Prepay</span>
-          <span class="orbit-fn__badge orbit-fn__badge--soon">Soon</span>
+          <span class="orbit-fn__badge orbit-fn__badge--live">QA</span>
         </button>
         <span class="orbit-fn__un is-hidden" id="orbit-fn-un" role="status"></span>
       </nav>
@@ -422,11 +420,7 @@
     <!-- Daily Detail filters -->
     <div class="orbit-dd-filters">
 
-      <!-- Month pills (synced with Overview timeline) -->
-      <div class="orbit-filters__group">
-        <span class="orbit-filters__label">Timeline</span>
-        <div class="orbit-filters__pills" id="dd-month-pills" role="group" aria-label="Filter daily detail by month"></div>
-      </div>
+      <!-- Timeline is controlled by the single global filter bar. -->
 
       <!-- Date filter — narrows to a single calendar day within the selected month -->
       <div class="orbit-filters__group orbit-filters__group--date" id="dd-date-group">
@@ -522,10 +516,7 @@
     <!-- Monthly filters -->
     <div class="orbit-dd-filters mp-filters">
 
-      <div class="orbit-filters__group">
-        <span class="orbit-filters__label">Timeline</span>
-        <div class="orbit-filters__pills" id="mp-month-pills" role="group" aria-label="Filter by month"></div>
-      </div>
+      <!-- Timeline is controlled by the single global filter bar. -->
 
       <div class="orbit-filters__group">
         <span class="orbit-filters__label">Manager</span>
@@ -1335,7 +1326,7 @@
       <article class="kpi-card">
         <div class="kpi-label">QA Audits</div>
         <div class="kpi-value" id="fn-qa-audits">—</div>
-        <div class="kpi-sub">All periods</div>
+        <div class="kpi-sub" id="fn-qa-audits-sub">All periods</div>
       </article>
       <article class="kpi-card">
         <div class="kpi-label">Avg QA Score</div>

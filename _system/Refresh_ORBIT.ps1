@@ -532,16 +532,19 @@ function FnOfRow($id, $name) {
 }
 
 # -- D_FN_META: per-function maturity (full | qa | prod | uc) ---------------
+# QA exists in source system but not yet in the Fact_QA extract (reported volumes)
+$FN_QA_SRC = @{ 'cob'=1461; 'iqt'=1144; 'non-cob'=4012; 'prepay'=2194 }
 $fnMeta = @()
 foreach ($k in $FN_KEYS.Values | Sort-Object -Unique) {
     $members = @($dimRows | Where-Object { $_.fn -eq $k })
     $p = @($prodRows | Where-Object { (FnOfRow $null $_.a) -eq $k }).Count
     $q = 0
     foreach ($r in $qaRows) { if ((FnOfRow $r.id $r.a) -eq $k) { $q += [Math]::Max(1,$r.cnt) } }
-    $state = if ($p -and $q) { 'full' } elseif ($q) { 'qa' } elseif ($p) { 'prod' } else { 'uc' }
+    $qSrc = $FN_QA_SRC[$k]
+    $state = if ($p -and $q) { 'full' } elseif ($q -or $qSrc) { 'qa' } elseif ($p) { 'prod' } else { 'uc' }
     $fnMeta += [ordered]@{
         key=$k; name=$FN_LABEL[$k]
-        state=$state; prod=$p; qa=$q; assoc=$members.Count
+        state=$state; prod=$p; qa=$q; qa_src=$qSrc; assoc=$members.Count
         ams=@($members | Select-Object -ExpandProperty am -Unique | Where-Object { $_ } | Sort-Object)
         mgrs=@($members | Select-Object -ExpandProperty mgr -Unique | Where-Object { $_ } | Sort-Object)
     }
@@ -583,7 +586,7 @@ if (Test-Path $PREV_CSV) {
         $p = $prev[$d.id]
         if (-not $p) { continue }
         $checks = @(
-            @{ fld='fn';  old="$($p.Function)".Trim();            new=$d.fn },
+            @{ fld='fn';  old=$FN_KEYS["$($p.Function)".Trim()];    new=$d.fn },
             @{ fld='am';  old="$($p.'Assistant Manager')".Trim(); new=$d.am },
             @{ fld='mgr'; old="$($p.Manager)".Trim();             new=$d.mgr }
         )
