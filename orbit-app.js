@@ -1086,6 +1086,7 @@ const DD = (() => {
     // Rebuild pills and dropdowns against the new function's data
     buildMonthPills();
     buildManagerSelect();
+    rebuildAssocSelect();   // repopulate from Q()/DIM_FN() for the new function
   }
 
   function render() {
@@ -1207,12 +1208,22 @@ const DD = (() => {
     const sel = document.getElementById('dd-assoc-select');
     if (!sel) return;
     const prev = sel.value;
-    const assocs = [...new Set(
-      P()
-        .filter(r => (S.month === 'all' || r.ym === S.month) && (S.manager === 'all' || r.m === S.manager))
-        .map(r => r.a)
-        .filter(Boolean)
-    )].sort();
+    // Source hierarchy: Q() names (function-scoped QA data) → P() names
+    // (D&I prod data) → DIM_FN() roster fallback for functions with no rows yet.
+    // Q() is primary so COB/IQT/etc. see their own associates, not D&I names.
+    const qaRows = Q().filter(r =>
+      (S.month   === 'all' || r.d.startsWith(S.month)) &&
+      (S.manager === 'all' || r.m === S.manager)
+    );
+    const prodRows = P().filter(r =>
+      (S.month   === 'all' || r.ym === S.month) &&
+      (S.manager === 'all' || r.m  === S.manager)
+    );
+    const fromData = [...new Set([...qaRows.map(r => r.a), ...prodRows.map(r => r.a)].filter(Boolean))].sort();
+    // Fallback to roster when function has no data rows yet
+    const assocs = fromData.length
+      ? fromData
+      : DIM_FN().map(d => d.n).filter(Boolean).sort();
     sel.innerHTML = '<option value="all">All Associates</option>';
     assocs.forEach(a => {
       const opt = document.createElement('option');
@@ -1974,6 +1985,7 @@ const MP = (() => {
     // Rebuild pills and dropdowns against the new function's data
     buildMonthPills();
     buildManagerSelect();
+    rebuildAssocSelect();   // repopulate from Q()/DIM_FN() for the new function
   }
 
   /* ── Filter controls ─────────────────────────────────────── */
@@ -2037,13 +2049,23 @@ const MP = (() => {
     const sel = document.getElementById('mp-assoc-select');
     if (!sel) return;
     const prev = sel.value;
-    const assocs = [...new Set(
-      P()
-        .filter(r =>
-          (S.month   === 'all' || r.ym === S.month) &&
-          (S.manager === 'all' || r.m  === S.manager))
-        .map(r => r.a).filter(Boolean)
-    )].sort();
+    // Source hierarchy: Q() names (function-scoped) → P() names (D&I prod) →
+    // DIM_FN() roster fallback for functions with no data yet.
+    // Q() is the primary source because every non-D&I function is QA-only;
+    // using Q() ensures COB/IQT/etc. see their own associates, not D&I names.
+    const qaRows = Q().filter(r =>
+      (S.month   === 'all' || r.d.startsWith(S.month)) &&
+      (S.manager === 'all' || r.m === S.manager)
+    );
+    const prodRows = P().filter(r =>
+      (S.month   === 'all' || r.ym === S.month) &&
+      (S.manager === 'all' || r.m  === S.manager)
+    );
+    const fromData = [...new Set([...qaRows.map(r => r.a), ...prodRows.map(r => r.a)].filter(Boolean))].sort();
+    // Fallback to roster when function has no rows yet
+    const assocs = fromData.length
+      ? fromData
+      : DIM_FN().map(d => d.n).filter(Boolean).sort();
     sel.innerHTML = '<option value="all">All Associates</option>';
     assocs.forEach(a => {
       const o = document.createElement('option');
