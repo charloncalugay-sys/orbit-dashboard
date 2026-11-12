@@ -176,11 +176,22 @@ function filterProd(month, manager) {
   );
 }
 
-// QA manager filter matches D_QA[m] directly (same logic).
+// QA manager filter: matches D_QA[m] (historical) OR D_DIM[am] (current).
+// Associates moved to a new TL since their last audit still appear under
+// their current manager when that manager's filter is selected.
 function filterQA(month, manager) {
+  if (manager === 'all') {
+    return Q().filter(r => month === 'all' || r.d.startsWith(month));
+  }
+  // Build a set of OPR IDs whose current D_DIM[am] matches the filter
+  const dimAMids = new Set(
+    (typeof D_DIM !== 'undefined' ? D_DIM : [])
+      .filter(d => d.am === manager || d.mgr === manager)
+      .map(d => d.id)
+  );
   return Q().filter(r =>
-    (manager === 'all' || r.m === manager) &&
-    (month   === 'all' || r.d.startsWith(month))
+    (r.m === manager || dimAMids.has(r.id)) &&
+    (month === 'all' || r.d.startsWith(month))
   );
 }
 
@@ -222,55 +233,97 @@ function computeKPIs(prodRows, qaRows) {
 }
 
 /* ── Associate table computation ───────────────────────────── */
-// Manager = D_PROD[m] for the filtered period (period-aware).
-// When month filter is active, each associate's manager reflects
-// who managed them IN THAT MONTH — not a static Dim_Associate value.
+// PRIMARY KEY: OPR ID (D_QA[id] / D_DIM[id]).
+// One associate = one row regardless of manager history.
+// D_DIM is the authority for current name and current manager (am).
+// D_PROD[m] is used only as a period-aware manager override when
+// an associate appears in D_PROD (disputes-intakes / full-prod).
 function computeAssocTable(prodRows, qaRows) {
-  const assocMap = {};
+  const assocMap = {};  // key = OPR ID, or 'n:'+name for unclassified fallback
 
-  // Build from prod rows — group by associate name
-  // Manager for each associate = D_PROD[m] for rows in this filter window.
-  // If an associate appears under different managers in different months
-  // and month='all', we take the most recent manager (largest ym).
+  // Build D_DIM lookups: id -> dim row, name -> id
+  const dimById   = {};
+  const dimByName = {};
+  (typeof D_DIM !== 'undefined' ? D_DIM : []).forEach(d => {
+    if (d.id) dimById[d.id] = d;
+    if (d.n)  dimByName[d.n] = d.id;
+  });
+
+  // Helper: resolve the assocMap key for a name string.
+  // Returns OPR ID when known; falls back to 'n:'+name so unclassified
+  // associates still get one row (and don't collide with OPR-ID keys).
+  function keyFor(name) { return dimByName[name] || ('n:' + name); }
+
+  // Helper: current manager display string for a given OPR ID or name.
+  // D_DIM[am] = current assistant manager / TL — the roster-authoritative
+  // manager. Falls back to D_PROD[m] from the most recent filtered row.
+  function dimAM(id) {
+    const d = dimById[id];
+    return d ? (d.am || d.mgr || '') : '';
+  }
+
+  // ── 1. Build from D_PROD rows ───────────────────────────────
+  // Group by associate name, resolve to OPR ID key via D_DIM.
+  // For the manager field, prefer D_DIM[am] (roster-current);
+  // fall back to D_PROD[m] from the most recent period in the
+  // filter window (preserves period-aware behaviour when D_DIM lacks entry).
   const prodByAssoc = groupBy(prodRows, 'a');
   Object.entries(prodByAssoc).forEach(([name, rows]) => {
     if (!name) return;
-    const act = rows.reduce((s, r) => s + (r.act || 0), 0);
-    const tgt = rows.reduce((s, r) => s + (r.tgt || 0), 0);
-    // Most recent manager for this associate in the filtered window
+    const act    = rows.reduce((s, r) => s + (r.act || 0), 0);
+    const tgt    = rows.reduce((s, r) => s + (r.tgt || 0), 0);
+    const oid    = dimByName[name];
+    const mapKey = oid || ('n:' + name);
+    // Most recent D_PROD[m] for this associate in the filtered window
     const sorted  = [...rows].sort((a, b) => (a.ym > b.ym ? -1 : 1));
-    const manager = sorted[0].m;
-    assocMap[name] = { name, manager, act, tgt, qaCnt: 0, qaScr: 0 };
+    const manager = (oid ? dimAM(oid) : '') || sorted[0].m;
+    assocMap[mapKey] = { id: mapKey, name, manager, act, tgt, qaCnt: 0, qaScr: 0 };
   });
 
-  // Merge QA data.
-  // D_QA[a] is now the roster-authoritative name for all OPR-ID-matched rows
-  // (set by enrich_data.py).  idToName is kept as a last-resort fallback for
-  // the small set of unmatched IDs whose 'a' field is a raw QA-system string.
+  // ── 2. Merge D_QA rows — keyed by OPR ID directly ──────────
+  // D_QA[id] IS the OPR ID. D_QA[a] is the roster-authoritative name
+  // for matched rows (fn !== 'un'); raw QA-system string otherwise.
   const qaByID = groupBy(qaRows, 'id');
   Object.entries(qaByID).forEach(([id, rows]) => {
-    // Name resolution: D_QA[a] is authoritative when the row was roster-matched
-    // (fn !== 'un'); fall back to idToName then id for unclassified rows.
+    if (!id) return;
     const isMatched = rows[0].fn && rows[0].fn !== 'un';
-    const name = isMatched ? (rows[0].a || id) : (idToName[id] || rows[0].a || id);
-    if (!name) return;
+    // Name: D_DIM is authoritative when available, then D_QA[a], then id
+    const dimEntry  = dimById[id];
+    const name      = dimEntry ? dimEntry.n : (isMatched ? rows[0].a : (idToName[id] || rows[0].a || id));
+    const mapKey    = id;   // OPR ID is the canonical key for all QA rows
     const cnt  = rows.reduce((s, r) => s + (r.cnt || 0), 0);
     const wScr = rows.reduce((s, r) => s + (r.cnt || 0) * (r.scr || 0), 0);
-    if (!assocMap[name]) {
-      // QA-only associate: manager from D_QA[m]
-      assocMap[name] = { name, manager: rows[0].m, act: null, tgt: null, qaCnt: 0, qaScr: 0 };
+    // For unmatched rows (fn='un'): if the QA name exactly matches a D_PROD
+    // fallback key already in the map, merge into it rather than creating a
+    // second OPR-ID entry — this collapses unclassified prod+QA duplicates.
+    // Guard: only merge if this OPR ID has a single unambiguous name in D_QA
+    // (multiple names across rows = ambiguous ID, keep it separate).
+    const qaNames     = new Set(rows.map(r => r.a).filter(Boolean));
+    const fallbackKey = 'n:' + name;
+    const targetKey   = assocMap[mapKey] ? mapKey
+                      : (!isMatched && qaNames.size === 1 && assocMap[fallbackKey]) ? fallbackKey
+                      : mapKey;
+    if (!assocMap[targetKey]) {
+      // QA-only associate: manager from D_DIM[am], fallback D_QA[m] most-recent
+      const sortedQ  = [...rows].sort((a, b) => (a.d > b.d ? -1 : 1));
+      const manager  = dimAM(id) || sortedQ[0].m || '';
+      assocMap[targetKey] = { id: targetKey, name, manager, act: null, tgt: null, qaCnt: 0, qaScr: 0 };
+    } else {
+      // Already seeded from D_PROD; ensure name uses D_DIM / enriched value
+      if (dimEntry && dimEntry.n) assocMap[targetKey].name = dimEntry.n;
     }
-    assocMap[name].qaCnt += cnt;
-    assocMap[name].qaScr += wScr;
+    assocMap[targetKey].qaCnt += cnt;
+    assocMap[targetKey].qaScr += wScr;
   });
 
-  // Roster fallback: every currently-assigned associate appears even when
-  // they have no rows yet — productivity-pending functions still show their
-  // full roster in the detail table.
+  // ── 3. Roster fallback ──────────────────────────────────────
+  // Every currently-assigned associate appears even with no data yet —
+  // productivity-pending functions still show their full roster.
+  // Key by OPR ID so roster entries never duplicate QA or PROD entries.
   if (PENDING_PROD) {
     DIM_FN().forEach(d => {
-      if (d.n && !assocMap[d.n])
-        assocMap[d.n] = { name: d.n, manager: d.mgr, act: null, tgt: null, qaCnt: 0, qaScr: 0 };
+      if (!d.id || assocMap[d.id]) return;
+      assocMap[d.id] = { id: d.id, name: d.n, manager: d.am || d.mgr || '', act: null, tgt: null, qaCnt: 0, qaScr: 0 };
     });
   }
 
