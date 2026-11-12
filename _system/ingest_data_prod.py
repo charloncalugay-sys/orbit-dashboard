@@ -14,6 +14,9 @@ Rule 2 — ITS Host exclusion:
 
 Rule 3 — Cash Control actual:
     act = Prod Count + Review + Rework (CC)
+    The act formula uses the SOURCE function tag from data_prod, not the
+    D_DIM function, so a Cash Control source row always applies Rule 3
+    regardless of where the associate currently sits in the roster.
 
 Rule 4 — All other functions actual:
     act = Prod Count
@@ -22,11 +25,22 @@ Rule 5 — Target handling:
     tgt = None when Prod Target is None, blank, OR zero.
     tgt = round(Prod Target, 2) only when Prod Target > 0.
 
-Rule 6 — Roster join (OPR ID):
-    name = D_DIM[id].n  when the OPR ID is in D_DIM (roster-authoritative).
-    name = title_case(data_prod name) for unmatched IDs (not in roster yet).
-    Manager (am) and function slug sourced from D_DIM when matched;
-    function slug derived from Function column when unmatched.
+Rule 6 — Roster join (OPR ID) + CURRENT-FUNCTION ATTRIBUTION:
+    name    = D_DIM[id].n  (roster-canonical)
+    manager = D_DIM[id].am (current TL)
+    fn      = D_DIM[id].fn (CURRENT function — roster-authoritative)
+
+    For unmatched IDs (not yet in D_DIM):
+    name    = title_case(data_prod name)
+    manager = ''
+    fn      = source function from data_prod column
+
+    Architectural note — why D_DIM fn, not source fn:
+    Dashboard populations must reflect current organisational ownership.
+    An associate who worked IQT and is now in NON-COB should have ALL their
+    production attributed to NON-COB on the NON-COB dashboard.  Historical
+    function movement is preserved in D_HIST / Associate Records / Timeline
+    View but never alters dashboard attribution.
 
 Rule 7 — Week label:
     'Week N' where N = week-of-month (Monday-anchored, same as D_PROD).
@@ -35,7 +49,7 @@ Output schema (identical to D_PROD for drop-in compatibility)
 --------------------------------------------------------------
 {fn, m, a, id, ym, w, d, act, tgt}
 
-   fn  — function slug  ('cash-control', 'cob', etc.)
+   fn  — CURRENT function slug from D_DIM (roster-authoritative)
    m   — current AM / TL (from D_DIM[am]) or '' for unmatched
    a   — roster-canonical associate name (or title-cased fallback)
    id  — OPR ID (Domain column)
@@ -190,31 +204,25 @@ for r in raw:
     rr   = to_num(r[RR])
     tgt  = tgt_val(r[PT])
 
-    # Rule 3 — Cash Control actual includes Review+Rework
+    # Rule 3 — Cash Control actual includes Review+Rework.
+    # Use SOURCE fn for the act formula: a CC source row applies Rule 3
+    # regardless of where the associate now sits in the roster.
     act = prod + rr if fn == 'cash-control' else prod
 
-    # Rule 6 — roster join
-    # fn_dim resolution:
-    #   Source fn  is used as the production function (where the work was done).
-    #   D_DIM fn   is the associate's CURRENT function assignment (roster-current).
-    #   These diverge for associates who have since transferred.
-    #   We use the SOURCE fn (from data_prod) as the production function so that
-    #   historical IQT/NON-COB production rows are attributed to those functions,
-    #   not to the associate's current D_DIM function.
-    #   Exception: if D_DIM fn == 'disputes-intakes', the existing D_PROD is
-    #   authoritative for that associate's D&I work. Keep source fn so those
-    #   rows remain visible in their source function (IQT/NON-COB etc.) and are
-    #   not buried in a D&I slice that P() will never surface from D_PROD_EXT.
+    # Rule 6 — roster join with CURRENT-FUNCTION attribution (D_DIM is authoritative).
+    # fn_dim = D_DIM[id].fn  → the associate's CURRENT function assignment.
+    # Production rows follow the associate to their current function so every
+    # dashboard shows only the people presently assigned to that function.
+    # Unmatched IDs (not yet in D_DIM) retain the source function as a fallback.
     dim_entry = dim_by_id.get(oid) if oid else None
     if dim_entry:
         name    = dim_entry['n']
         manager = dim_entry.get('am') or dim_entry.get('mgr') or ''
-        # Use source fn (not D_DIM fn) to preserve historical function attribution.
-        fn_dim  = fn
+        fn_dim  = dim_entry['fn']   # CURRENT function — roster-authoritative
     else:
         name    = title_name(r[A])
         manager = ''
-        fn_dim  = fn
+        fn_dim  = fn                # fallback: source function from data_prod
         if oid:
             unmatched_ids[fn].add((oid, name))
 
