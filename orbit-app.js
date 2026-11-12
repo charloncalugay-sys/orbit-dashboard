@@ -147,27 +147,52 @@ function fnOf(r) {
 // it returns the correct slice for whatever CUR_FN is active, ensuring all
 // downstream consumers (filterProd, computeKPIs, computeAssocTable, etc.)
 // work identically for every function without modification.
+//
+// ROSTER GATE — applied inside P() so every consumer is covered automatically:
+//   Only rows whose OPR ID (r.id) is present in D_DIM for CUR_FN are returned.
+//   Associates who are no longer on the current roster (resigned, transferred
+//   to another tower, or simply absent from D_DIM) are silently excluded from
+//   all dashboards, dropdowns, KPIs, and QA calculations in one place.
+//   Complete production history for CURRENT associates is preserved — an
+//   associate who transferred into their current function mid-year will show
+//   all prior months because those D_PROD_EXT rows carry their OPR ID.
 const PROD_FN = 'disputes-intakes';
 function P() {
-  // For every function, D_PROD_EXT carries the current-roster-authoritative rows.
-  // For Disputes & Intakes, D_PROD is the existing authoritative productivity source
-  // AND D_PROD_EXT[fn='disputes-intakes'] holds earlier months for associates who
-  // transferred into D&I mid-year (their Jan–Jul production came through other
-  // source functions and was attributed to D&I via D_DIM fn).
-  // Both must be returned so the full production history is visible for every
-  // current D&I associate regardless of when they joined.
   if (typeof D_PROD_EXT === 'undefined') {
     return CUR_FN === PROD_FN ? D_PROD : [];
   }
+
+  // Build the allowed OPR ID set for the current function from D_DIM.
+  // This is recomputed on every P() call; it is a small Set (≤120 entries)
+  // so the cost is negligible vs. the correctness guarantee it provides.
+  const rosterIds = typeof D_DIM !== 'undefined'
+    ? new Set(D_DIM.filter(d => d.fn === CUR_FN).map(d => d.id).filter(Boolean))
+    : new Set();
+
   if (CUR_FN === PROD_FN) {
     // Merge D_PROD (authoritative) with D_PROD_EXT D&I rows (earlier months).
-    // De-duplicate by associate + date: D_PROD row wins when both exist for
-    // the same name+date (Rule 2: existing source is authoritative).
+    // D&I transferees have Jan–Jul in D_PROD_EXT and later months in D_PROD.
+    // De-duplicate by associate + date: D_PROD row wins when both exist.
+    // Apply roster gate: only current D&I roster associates are returned.
     const seen = new Set(D_PROD.map(r => r.a + '|' + r.d));
-    const ext  = D_PROD_EXT.filter(r => r.fn === PROD_FN && !seen.has(r.a + '|' + r.d));
-    return [...D_PROD, ...ext];
+    const ext  = D_PROD_EXT.filter(r =>
+      r.fn === PROD_FN &&
+      !seen.has(r.a + '|' + r.d) &&
+      r.id && rosterIds.has(r.id)
+    );
+    // For D_PROD rows: they are keyed by name, not OPR ID.
+    // Gate by name against the current D&I roster names.
+    const rosterNames = typeof D_DIM !== 'undefined'
+      ? new Set(D_DIM.filter(d => d.fn === CUR_FN).map(d => d.n).filter(Boolean))
+      : new Set();
+    return [
+      ...D_PROD.filter(r => r.a && rosterNames.has(r.a)),
+      ...ext,
+    ];
   }
-  return D_PROD_EXT.filter(r => r.fn === CUR_FN);
+
+  // Non-D&I functions: gate exclusively by OPR ID against D_DIM current roster.
+  return D_PROD_EXT.filter(r => r.fn === CUR_FN && r.id && rosterIds.has(r.id));
 }
 function Q()    { return D_QA.filter(r => fnOf(r) === CUR_FN); }
 function MGRS() {
