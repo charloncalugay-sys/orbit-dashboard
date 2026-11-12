@@ -165,6 +165,7 @@ Log "STEP 1: Opening Excel and refreshing data model..." Cyan
 
 Stop-Process -Name EXCEL -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
+Mark-Time "Excel kill + wait"
 
 $xl = New-Object -ComObject Excel.Application
 $xl.Visible        = $true
@@ -172,12 +173,56 @@ $xl.DisplayAlerts  = $false
 $xl.ScreenUpdating = $false
 
 $wb = $xl.Workbooks.Open($WORKBOOK)
-Log "  Workbook open. Running RefreshAll..." Gray
-try { $wb.RefreshAll() } catch { Log ("  RefreshAll warning: " + $_.Exception.Message) Yellow }
-Start-Sleep -Seconds 10   # allow data model to fully load
+Mark-Time "Workbook open"
 
-Log "  Waiting for background queries to settle..." Gray
+# ── Active-wait for RefreshAll ────────────────────
+# RefreshAll() fires all connections asynchronously and returns
+# immediately. We poll WorkbookConnection.OLEDBConnection.Refreshing
+# every 5s until all connections finish, up to a 20-min hard cap.
+# This gives the EXACT refresh duration instead of a blind sleep.
+Log "  Issuing RefreshAll..." Gray
+$T_REFRESH_START = Get-Date
+try { $wb.RefreshAll() } catch { Log ("  RefreshAll warning: " + $_.Exception.Message) Yellow }
+Start-Sleep -Seconds 3   # brief pause before first poll
+
+Log "  Polling connections for refresh completion..." Gray
+$pollSec      = 0
+$maxPollSec   = 1200   # 20-min hard cap
+$pollInterval = 5      # seconds between polls
+do {
+    Start-Sleep -Seconds $pollInterval
+    $pollSec += $pollInterval
+    $stillRunning = @()
+    try {
+        foreach ($conn in $wb.Connections) {
+            try {
+                $ole = $conn.OLEDBConnection
+                if ($ole -ne $null -and $ole.Refreshing) { $stillRunning += $conn.Name }
+            } catch {}
+            try {
+                $pq = $conn.ODBCConnection
+                if ($pq -ne $null -and $pq.Refreshing) { $stillRunning += $conn.Name }
+            } catch {}
+        }
+    } catch {}
+    if ($stillRunning.Count -gt 0) {
+        Log ("    still refreshing ($pollSec s): " + ($stillRunning -join ", ")) DarkGray
+    }
+} while ($stillRunning.Count -gt 0 -and $pollSec -lt $maxPollSec)
+
+$refreshDur = [Math]::Round(($T_REFRESH_START - (Get-Date)).TotalSeconds * -1, 1)
+if ($pollSec -ge $maxPollSec) {
+    Log "  [WARN] RefreshAll poll timed out at ${maxPollSec}s — connections may still be loading." Yellow
+} else {
+    Log ("  All connections finished. Refresh duration: ${refreshDur}s") Green
+}
+Mark-Time "RefreshAll complete"
+
+# Extra settle time for the in-process Analysis Services engine
+# (DAX recalc runs after Power Query finishes; 5s is usually enough).
+Log "  Settling data model (DAX recalc)..." Gray
 Start-Sleep -Seconds 5
+Mark-Time "Data model settle"
 Log "  Data model refresh complete. $(Elapsed)" Green
 
 # ════════════════════════════════════════════════════════════════
@@ -216,7 +261,8 @@ F $ptP "[Fact_Productivity].[Date]"           $xlRow
 F $ptP "[Fact_Productivity].[WEEK]"           $xlRow
 F $ptP "[Measures].[Actual Production]"       $xlData
 F $ptP "[Measures].[Production Target]"       $xlData
-Log ("    Rows: " + $ptP.TableRange1.Rows.Count) Gray
+Log ("    PT_PROD rows: " + $ptP.TableRange1.Rows.Count) Gray
+Mark-Time "PT_PROD build"
 
 # PT-QA
 Log "  Building PT_QA..." Gray
@@ -227,7 +273,8 @@ F $ptQ "[Fact_QA_AllFunctions].[Associate]"       $xlRow
 F $ptQ "[Fact_QA_AllFunctions].[Process Date]"    $xlRow
 F $ptQ "[Measures].[QA Audit Count]" $xlData
 F $ptQ "[Measures].[Avg QA Score]"   $xlData
-Log ("    Rows: " + $ptQ.TableRange1.Rows.Count) Gray
+Log ("    PT_QA rows: " + $ptQ.TableRange1.Rows.Count) Gray
+Mark-Time "PT_QA build"
 
 # PT-ASSOC
 Log "  Building PT_ASSOC..." Gray
@@ -236,7 +283,8 @@ F $ptA "[Dim_Associate].[Manager]"        $xlRow
 F $ptA "[Dim_Associate].[Domain ID]"      $xlRow
 F $ptA "[Dim_Associate].[Associate Name]" $xlRow
 F $ptA "[Measures].[Actual Production]"   $xlData
-Log ("    Rows: " + $ptA.TableRange1.Rows.Count) Gray
+Log ("    PT_ASSOC rows: " + $ptA.TableRange1.Rows.Count) Gray
+Mark-Time "PT_ASSOC build"
 
 $wb.Save()
 Start-Sleep -Seconds 2
@@ -248,19 +296,24 @@ $ps.Cells.Item(1,1).Value2 = "PROD_START"
 
 $ptP.TableRange1.Copy(); $ps.Cells.Item(2,1).PasteSpecial(-4163); $xl.CutCopyMode = $false
 $lastRowP = $ps.Cells.Item(1,1).SpecialCells(11).Row
+Mark-Time "PT_PROD paste"
 $ps.Cells.Item($lastRowP+2, 1).Value2 = "QA_START"
 $ptQ.TableRange1.Copy(); $ps.Cells.Item($lastRowP+3, 1).PasteSpecial(-4163); $xl.CutCopyMode = $false
 $lastRowQ = $ps.Cells.Item(1,1).SpecialCells(11).Row
+Mark-Time "PT_QA paste"
 $ps.Cells.Item($lastRowQ+2, 1).Value2 = "ASSOC_START"
 $ptA.TableRange1.Copy(); $ps.Cells.Item($lastRowQ+3, 1).PasteSpecial(-4163); $xl.CutCopyMode = $false
+Mark-Time "PT_ASSOC paste"
 
 $wb.Save()
+Mark-Time "Workbook save (post-paste)"
 
 # Read PLAIN_DATA and convert to CSVs
 $lastRow = $ps.Cells.Item(1,1).SpecialCells(11).Row
 $lastCol = $ps.Cells.Item(1,1).SpecialCells(11).Column
 $allData = $ps.Range($ps.Cells.Item(1,1), $ps.Cells.Item($lastRow,$lastCol)).Value2
 Log ("  Sheet dimensions: $lastRow rows x $lastCol cols") Gray
+Mark-Time "PLAIN_DATA range read"
 
 $prodStart = $null; $qaStart = $null; $assocStart = $null
 $prodEnd   = $null; $qaEnd   = $null
@@ -292,12 +345,16 @@ function Section-To-CSV($data, $rStart, $rEnd, $nCols) {
 }
 
 $prodCsv  = Section-To-CSV $allData $prodStart  $prodEnd  8
+Mark-Time "prod_raw Section-To-CSV"
 $qaCsv    = Section-To-CSV $allData $qaStart    $qaEnd    8
+Mark-Time "qa_raw Section-To-CSV"
 $assocCsv = Section-To-CSV $allData $assocStart $assocEnd 8
+Mark-Time "assoc_raw Section-To-CSV"
 
 [System.IO.File]::WriteAllText("$SYS_DIR\prod_raw.csv",  $prodCsv,  [System.Text.Encoding]::UTF8)
 [System.IO.File]::WriteAllText("$SYS_DIR\qa_raw.csv",    $qaCsv,    [System.Text.Encoding]::UTF8)
 [System.IO.File]::WriteAllText("$SYS_DIR\assoc_raw.csv", $assocCsv, [System.Text.Encoding]::UTF8)
+Mark-Time "CSV WriteAllText"
 
 # Report max date captured
 $prodLines = $prodCsv -split "`n"
@@ -318,6 +375,7 @@ $wb.Close($false)
 $xl.Quit()
 [System.Runtime.InteropServices.Marshal]::ReleaseComObject($xl) | Out-Null
 [GC]::Collect()
+Mark-Time "Excel close + GC"
 Log "  Excel closed. $(Elapsed)" Green
 
 # ════════════════════════════════════════════════════════════════
@@ -327,6 +385,7 @@ Log "  Excel closed. $(Elapsed)" Green
 # ════════════════════════════════════════════════════════════════
 Log "STEP 2.5: Exporting leadership roster..." Cyan
 & "$SYS_DIR\Export_ORBIT_Leadership.ps1"
+Mark-Time "Leadership export (orbit-auth.js)"
 
 # ════════════════════════════════════════════════════════════════
 # STEP 3 — Parse CSVs and rebuild orbit-data.js
@@ -370,6 +429,7 @@ for ($i = 1; $i -lt $rawP.Length; $i++) {
 }
 $orgMgrs = $prodRows | Select-Object -ExpandProperty m | Sort-Object -Unique | Where-Object { $_ -ne "" }
 Log ("  PROD: " + $prodRows.Count + " rows, " + $orgMgrs.Count + " managers") Gray
+Mark-Time "Parse prod_raw.csv"
 
 # Parse QA
 $rawQ = [System.IO.File]::ReadAllLines("$SYS_DIR\qa_raw.csv",[System.Text.Encoding]::UTF8)
@@ -395,6 +455,7 @@ for ($i = 1; $i -lt $rawQ.Length; $i++) {
 }
 $qaMgrs = $qaRows | Select-Object -ExpandProperty m | Sort-Object -Unique | Where-Object { $_ -ne "" }
 Log ("  QA: " + $qaRows.Count + " rows, " + $qaMgrs.Count + " managers") Gray
+Mark-Time "Parse qa_raw.csv"
 
 # Parse ASSOC
 $rawA = [System.IO.File]::ReadAllLines("$SYS_DIR\assoc_raw.csv",[System.Text.Encoding]::UTF8)
@@ -408,6 +469,7 @@ for ($i = 1; $i -lt $rawA.Length; $i++) {
     elseif ($ia -ne "") { $null = $assocRows.Add([PSCustomObject]@{id=$ia; n=$c}); $ia = "" }
 }
 Log ("  ASSOC: " + $assocRows.Count + " rows") Gray
+Mark-Time "Parse assoc_raw.csv"
 
 # Write orbit-data.js
 $sb = [System.Text.StringBuilder]::new()
@@ -633,6 +695,25 @@ foreach ($h in $histRows) {
 [void]$sb.Append("const D_HIST=" + ($histById | ConvertTo-Json -Compress -Depth 4) + ";`n")
 
 [System.IO.File]::WriteAllText("$DASH_DIR\orbit-data.js", $sb.ToString(), [System.Text.Encoding]::UTF8)
+Mark-Time "orbit-data.js write (raw)"
+
+# ── Roster-authoritative D_QA enrichment ─────────────────────
+# enrich_data.py re-reads D_QA from orbit-data.js, joins every row to
+# the roster by ASSOCIATE OPR ID, and rewrites:
+#   D_QA[a]      -> official roster name  (never raw QA-system name)
+#   D_QA[fn]     -> function key (pre-attached; fnOf() checks this first)
+#   D_QA[am/mgr/pos/tower] -> roster values
+# Also refreshes D_FN, D_DIM, D_FN_META, D_HIST (roster_prev diff).
+Log "  Enriching D_QA rows from roster (OPR ID join)..." Gray
+$pyOut = & python -X utf8 "$SYS_DIR\enrich_data.py" 2>&1
+if ($LASTEXITCODE -eq 0) {
+    foreach ($line in $pyOut) { Log ("    " + $line) Gray }
+    Log "  D_QA enrichment complete." Green
+} else {
+    foreach ($line in $pyOut) { Log ("  [WARN] enrich: " + $line) Yellow }
+    Log "  [WARN] enrich_data.py exited $LASTEXITCODE — orbit-data.js may be unenriched." Yellow
+}
+Mark-Time "enrich_data.py (roster join)"
 
 $newSize = (Get-Item "$DASH_DIR\orbit-data.js").Length
 $newRows = $prodRows.Count
@@ -747,10 +828,12 @@ if (-not (Test-Path $GIT)) {
         }
 
         & $GIT -C $DASH_DIR commit -m $commitMsg 2>&1 | ForEach-Object { Log "  $_" Gray }
+        Mark-Time "git commit"
 
         if ($LASTEXITCODE -eq 0) {
             Log "  Committed: $commitMsg" Green
             & $GIT -C $DASH_DIR push origin main 2>&1 | ForEach-Object { Log "  $_" Gray }
+            Mark-Time "git push"
             if ($LASTEXITCODE -eq 0) {
                 Log "  Pushed to GitHub. Pages will update within ~60 seconds." Green
                 Log "  Live URL: $ORBIT_URL" Cyan
@@ -841,6 +924,10 @@ if (-not (Test-Path $GIT)) {
 }
 
 # ════════════════════════════════════════════════════════════════
+# ── Timing profile ──────────────────────────────────────────
+Mark-Time "TOTAL (before browser open)"
+Show-Profile
+
 # STEP 6 — Open / reload ORBIT.html in the default browser
 # ════════════════════════════════════════════════════════════════
 Log "STEP 6: Opening ORBIT in browser..." Cyan
