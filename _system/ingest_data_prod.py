@@ -365,6 +365,72 @@ with open(DATA_JS_PATH, 'w', encoding='utf-8') as f:
 
 print('  Written: %d D_PROD_EXT rows to orbit-data.js' % len(ext_rows))
 print('  File size: %.1f MB' % (len(new_js.encode('utf-8')) / 1024 / 1024))
+
+# ── Patch D_FN_META: update state using real D_PROD_EXT row counts ─────────
+# enrich_data.py sets prod_c['disputes-intakes'] = len(D_PROD) for all
+# functions — meaning the 7 non-D&I functions always get prod=0 and
+# therefore state='qa'.  Now that D_PROD_EXT exists, we can compute the
+# real per-function prod count and promote any function with prod rows to
+# state='full' (or 'prod' if it has no QA data at all).
 print()
-print('Done. Review the validation report above, then proceed to wire')
-print('D_PROD_EXT into orbit-app.js when ready.')
+print('=' * 76)
+print('PATCHING D_FN_META STATES')
+print('=' * 76)
+
+# Count D_PROD_EXT rows per function
+from collections import Counter
+ext_counts = Counter(r['fn'] for r in ext_rows)
+
+# Read current D_FN_META from the just-written orbit-data.js
+js_now = open(DATA_JS_PATH, encoding='utf-8').read()
+meta_m = re.search(r'const D_FN_META=(\[.*?\]);', js_now, re.S)
+if not meta_m:
+    print('  [WARN] D_FN_META not found in orbit-data.js  -  skipping badge patch.')
+else:
+    meta = json.loads(meta_m.group(1))
+    changed = 0
+    for entry in meta:
+        k = entry['key']
+        if k == 'disputes-intakes':
+            # D&I prod comes from D_PROD (the PivotTable path) -- already correct
+            continue
+        ext_p = ext_counts.get(k, 0)
+        if ext_p == 0:
+            continue   # no production data for this function -- leave state as-is
+        old_state = entry['state']
+        new_state = 'full' if entry.get('qa', 0) or entry.get('qa_src') else 'prod'
+        if old_state != new_state:
+            entry['state'] = new_state
+            entry['prod']  = ext_p
+            print('  %-22s  %s -> %s  (%d prod rows)' % (k, old_state, new_state, ext_p))
+            changed += 1
+        else:
+            # State already correct but make sure prod count is updated
+            entry['prod'] = ext_p
+
+    if changed == 0:
+        print('  All D_FN_META states already correct.')
+
+    # Write patched D_FN_META back
+    patched_meta_json = json.dumps(meta, ensure_ascii=False, separators=(',', ':'))
+    js_patched = re.sub(
+        r'const D_FN_META=\[.*?\];',
+        'const D_FN_META=' + patched_meta_json + ';',
+        js_now,
+        flags=re.S
+    )
+    with open(DATA_JS_PATH, 'w', encoding='utf-8') as f:
+        f.write(js_patched)
+
+    print()
+    print('Final D_FN_META states:')
+    print('  %-22s  %-6s  %10s  %8s' % ('function', 'state', 'prod_rows', 'qa_rows'))
+    print('  ' + '-' * 52)
+    for entry in meta:
+        badge = 'Live' if entry['state'] == 'full' else ('QA' if entry['state'] == 'qa' else entry['state'])
+        print('  %-22s  %-6s  %10d  %8d  [%s]' % (
+            entry['key'], entry['state'], entry.get('prod', 0), entry.get('qa', 0), badge))
+
+print()
+print('Done.')
+print('D_PROD_EXT and D_FN_META are now current in orbit-data.js.')

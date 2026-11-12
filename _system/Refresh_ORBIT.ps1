@@ -784,6 +784,26 @@ if ($LASTEXITCODE -eq 0) {
 }
 Mark-Time "enrich_data.py (roster join)"
 
+# ════════════════════════════════════════════════════════════════
+# STEP 3b  -  Inject D_PROD_EXT + fix D_FN_META badges
+# ════════════════════════════════════════════════════════════════
+# ingest_data_prod.py reads data_prod.xlsx, builds D_PROD_EXT for
+# the 7 non-D&I functions, injects it into orbit-data.js, then
+# patches D_FN_META.state for every function that has prod rows
+# so the Live badge is correctly shown.
+# Must run AFTER enrich_data.py (needs enriched D_DIM in orbit-data.js).
+Log "STEP 3b: Injecting D_PROD_EXT + patching D_FN_META badges..." Cyan
+$ingestOut = & python -X utf8 "$SYS_DIR\ingest_data_prod.py" 2>&1
+if ($LASTEXITCODE -eq 0) {
+    foreach ($line in $ingestOut) { Log ("    " + $line) Gray }
+    Log "  D_PROD_EXT injection complete." Green
+} else {
+    foreach ($line in $ingestOut) { Log ("  [WARN] ingest: " + $line) Yellow }
+    Log "  [WARN] ingest_data_prod.py exited $LASTEXITCODE  -  D_PROD_EXT and badges may be stale." Yellow
+}
+Mark-Time "ingest_data_prod.py (D_PROD_EXT + badges)"
+
+
 $newSize = (Get-Item "$DASH_DIR\orbit-data.js").Length
 $newRows = $prodRows.Count
 Log ("  orbit-data.js: " + [Math]::Round($newSize/1KB,1) + " KB") Green
