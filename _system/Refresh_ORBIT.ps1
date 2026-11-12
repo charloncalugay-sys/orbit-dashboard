@@ -84,6 +84,75 @@ function Log($msg, $color="White") {
 }
 function Elapsed { $sec = [int]((Get-Date)-$T0).TotalSeconds; return "[$sec s elapsed]" }
 
+# -- Timing infrastructure --------------------------------------------------
+# $TIMING : ordered list of {label, hms, lap, total} checkpoint objects.
+# $T_PREV : timestamp of the previous Mark-Time call (lap denominator).
+# Mark-Time "label" -- record a checkpoint, print lap + cumulative time.
+# Show-Profile      -- print ranked table, write _system\profile_last.json.
+$TIMING = [System.Collections.ArrayList]::new()
+$T_PREV = $T0
+
+function Mark-Time {
+    param([string]$label)
+    $now    = Get-Date
+    $lapSec = [Math]::Round(($now - $script:T_PREV).TotalSeconds, 1)
+    $totSec = [Math]::Round(($now - $T0).TotalSeconds, 1)
+    $null   = $script:TIMING.Add([PSCustomObject]@{
+        label = $label
+        hms   = $now.ToString('HH:mm:ss')
+        lap   = $lapSec
+        total = $totSec
+    })
+    $script:T_PREV = $now
+    Log ("    [TIMER] $label  lap: ${lapSec}s  |  total: ${totSec}s") DarkGray
+}
+
+function Show-Profile {
+    $div = '+' + ('-' * 40) + '+' + ('-' * 9) + '+' + ('-' * 10) + '+'
+    $hdr = '| {0,-38} | {1,7} | {2,8} |' -f 'Step', 'Lap (s)', 'Total (s)'
+    Write-Host ''
+    Write-Host $div                     -ForegroundColor Cyan
+    Write-Host '|  ORBIT REFRESH -- TIMING PROFILE         |   Lap(s) |  Total(s) |' -ForegroundColor Cyan
+    Write-Host $div                     -ForegroundColor Cyan
+    Write-Host $hdr                     -ForegroundColor Cyan
+    Write-Host $div                     -ForegroundColor Cyan
+    $maxLap = ($script:TIMING | Measure-Object -Property lap -Maximum).Maximum
+    foreach ($t in $script:TIMING) {
+        $col  = if ($t.lap -ge $maxLap -or $t.lap -gt 60) { 'Yellow' }
+                elseif ($t.lap -gt 20)                    { 'White'  }
+                else                                      { 'DarkGray' }
+        $flag = if ($t.lap -ge $maxLap) { ' <-- SLOWEST' } else { '' }
+        Write-Host ('| {0,-38} | {1,7} | {2,8} |{3}' -f $t.label, $t.lap, $t.total, $flag) -ForegroundColor $col
+    }
+    Write-Host $div -ForegroundColor Cyan
+    Write-Host ''
+
+    # Top 5 ranked by lap time
+    $ranked = $script:TIMING | Sort-Object lap -Descending | Select-Object -First 5
+    Write-Host 'TOP 5 SLOWEST STEPS:' -ForegroundColor Yellow
+    $rank = 1
+    foreach ($t in $ranked) {
+        Write-Host ("  $rank. $($t.label)  -->  $($t.lap)s") -ForegroundColor Yellow
+        $rank++
+    }
+    Write-Host ''
+
+    # Write machine-readable profile
+    $profilePath = "$SYS_DIR\profile_last.json"
+    $profileObj = [PSCustomObject]@{
+        run_at    = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        total_sec = ($script:TIMING | Select-Object -Last 1).total
+        top3      = @(
+            $script:TIMING | Sort-Object lap -Descending | Select-Object -First 3 |
+            ForEach-Object { [PSCustomObject]@{ label = $_.label; lap_sec = $_.lap } }
+        )
+        steps     = @($script:TIMING)
+    }
+    $profileObj | ConvertTo-Json -Depth 4 | Set-Content $profilePath -Encoding UTF8
+    Log "  Timing profile saved -> _system\profile_last.json" Gray
+}
+
+
 # ── Helpers shared by extract + rebuild ──────────────────────────────────────
 function ParseCsvLine($line) {
     $fields = [System.Collections.Generic.List[string]]::new()
