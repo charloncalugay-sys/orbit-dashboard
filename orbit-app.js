@@ -1064,6 +1064,30 @@ const DD = (() => {
     </tr>`;
   }
 
+  // Full reset — called on every function switch.
+  // Clears all local filter state so the new function's data renders
+  // cleanly with no stale manager / associate / date selections.
+  function reset() {
+    S.month   = STATE.month;
+    S.manager = 'all';
+    S.assoc   = 'all';
+    S.date    = '';
+    S.search  = '';
+    // Clear date picker and search input DOM elements
+    const dateInp = document.getElementById('dd-date-input');
+    const dateClear = document.getElementById('dd-date-clear');
+    const searchInp = document.getElementById('dd-search');
+    if (dateInp)  { dateInp.value = ''; if (dateInp.min) dateInp.min = ''; if (dateInp.max) dateInp.max = ''; }
+    if (dateClear) dateClear.classList.add('is-hidden');
+    if (searchInp) searchInp.value = '';
+    // Reset manager select DOM to 'all'
+    const mgrSel = document.getElementById('dd-manager-select');
+    if (mgrSel) mgrSel.value = 'all';
+    // Rebuild pills and dropdowns against the new function's data
+    buildMonthPills();
+    buildManagerSelect();
+  }
+
   function render() {
     S.month = STATE.month;   // single global Timeline drives all pages
     if (S.month !== 'all') syncDateToMonth();
@@ -1113,6 +1137,7 @@ const DD = (() => {
   function buildMonthPills() {
     const container = document.getElementById('dd-month-pills');
     if (!container) return;
+    container.innerHTML = '';   // clear before rebuild — prevents doubled pills on FN switch
     const months = uniqueSorted(P(), 'ym');
 
     const allBtn = document.createElement('button');
@@ -1156,12 +1181,15 @@ const DD = (() => {
       opt.textContent = m;
       sel.appendChild(opt);
     });
-    sel.addEventListener('change', () => {
+    sel.value = S.manager;   // restore current selection (or reset to 'all' if gone)
+    if (!sel.value) sel.value = 'all';
+    // Property assignment replaces any previous listener — safe to call on FN switch
+    sel.onchange = () => {
       S.manager = sel.value;
       S.assoc   = 'all';
       rebuildAssocSelect();
       render();
-    });
+    };
   }
 
   /* ── Build associate dropdown (responds to manager filter) ── */
@@ -1327,7 +1355,7 @@ const DD = (() => {
     // render() is deferred — called on first activation of #page-daily
   }
 
-  return { init, render };
+  return { init, render, reset };
 })();
 
 /* ── Attach DD init to DOMContentLoaded alongside main init ── */
@@ -1936,10 +1964,23 @@ const MP = (() => {
     renderDistChart(rows);
   }
 
+  // Full reset — called on every function switch.
+  // Clears all local filter state so the new function's data renders
+  // cleanly with no stale manager / associate selections.
+  function reset() {
+    S.month   = STATE.month;
+    S.manager = 'all';
+    S.assoc   = 'all';
+    // Rebuild pills and dropdowns against the new function's data
+    buildMonthPills();
+    buildManagerSelect();
+  }
+
   /* ── Filter controls ─────────────────────────────────────── */
   function buildMonthPills() {
     const container = document.getElementById('mp-month-pills');
     if (!container) return;
+    container.innerHTML = '';   // clear before rebuild — prevents doubled pills on FN switch
     const months = uniqueSorted(P(), 'ym');
 
     const mkBtn = (val, label) => {
@@ -1953,7 +1994,8 @@ const MP = (() => {
     container.appendChild(mkBtn('all', 'All'));
     months.forEach(ym => container.appendChild(mkBtn(ym, ym)));
 
-    container.addEventListener('click', e => {
+    // Replace listener — use onclick so rebuilding does not stack listeners
+    container.onclick = e => {
       const btn = e.target.closest('[data-month]');
       if (!btn) return;
       S.month = btn.dataset.month;
@@ -1961,7 +2003,7 @@ const MP = (() => {
         b.classList.toggle('is-active', b === btn));
       rebuildAssocSelect();
       render();
-    });
+    };
   }
 
   function buildManagerSelect() {
@@ -1973,18 +2015,22 @@ const MP = (() => {
       o.value = m; o.textContent = m;
       sel.appendChild(o);
     });
-    sel.addEventListener('change', () => {
+    sel.value = S.manager;
+    if (!sel.value) sel.value = 'all';
+    // Property assignment replaces any previous listener — safe to call on FN switch
+    sel.onchange = () => {
       S.manager = sel.value;
       S.assoc   = 'all';
       rebuildAssocSelect();
       render();
-    });
+    };
   }
 
   function buildAssocSelect() {
     rebuildAssocSelect();
-    document.getElementById('mp-assoc-select')
-      ?.addEventListener('change', e => { S.assoc = e.target.value; render(); });
+    // Property assignment — safe to call multiple times without stacking listeners
+    const mpSel = document.getElementById('mp-assoc-select');
+    if (mpSel) mpSel.onchange = e => { S.assoc = e.target.value; render(); };
   }
 
   function rebuildAssocSelect() {
@@ -2048,7 +2094,7 @@ const MP = (() => {
     // render() is deferred — called on first activation of #page-monthly
   }
 
-  return { init, render };
+  return { init, render, reset };
 })();
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -4801,6 +4847,17 @@ const FN = (() => {
       if (changed) {
         STATE.month = 'all'; STATE.manager = 'all';
         buildMonthPills(); buildManagerSelect();
+        // Reset DD and MP local filter state and rebuild their controls
+        // so they show data from the new function without stale manager /
+        // associate / date selections from the previous function.
+        // reset() also re-registers their onChange handlers (no listener stacking).
+        DD.reset();
+        MP.reset();
+        // Invalidate lazy-first-render flags so the user gets a fresh render
+        // when they open Daily Detail or Monthly Performance next time, even if
+        // they had already visited those tabs under the previous function.
+        PAGE_NAV.register('daily',   () => DD.render());
+        PAGE_NAV.register('monthly', () => MP.render());
       }
       const active = document.querySelector('.orbit-page-tab.is-active');
       const page = active ? active.dataset.page : 'overview';
