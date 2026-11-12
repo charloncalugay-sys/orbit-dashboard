@@ -149,8 +149,24 @@ function fnOf(r) {
 // work identically for every function without modification.
 const PROD_FN = 'disputes-intakes';
 function P() {
-  if (CUR_FN === PROD_FN) return D_PROD;
-  if (typeof D_PROD_EXT === 'undefined') return [];
+  // For every function, D_PROD_EXT carries the current-roster-authoritative rows.
+  // For Disputes & Intakes, D_PROD is the existing authoritative productivity source
+  // AND D_PROD_EXT[fn='disputes-intakes'] holds earlier months for associates who
+  // transferred into D&I mid-year (their Jan–Jul production came through other
+  // source functions and was attributed to D&I via D_DIM fn).
+  // Both must be returned so the full production history is visible for every
+  // current D&I associate regardless of when they joined.
+  if (typeof D_PROD_EXT === 'undefined') {
+    return CUR_FN === PROD_FN ? D_PROD : [];
+  }
+  if (CUR_FN === PROD_FN) {
+    // Merge D_PROD (authoritative) with D_PROD_EXT D&I rows (earlier months).
+    // De-duplicate by associate + date: D_PROD row wins when both exist for
+    // the same name+date (Rule 2: existing source is authoritative).
+    const seen = new Set(D_PROD.map(r => r.a + '|' + r.d));
+    const ext  = D_PROD_EXT.filter(r => r.fn === PROD_FN && !seen.has(r.a + '|' + r.d));
+    return [...D_PROD, ...ext];
+  }
   return D_PROD_EXT.filter(r => r.fn === CUR_FN);
 }
 function Q()    { return D_QA.filter(r => fnOf(r) === CUR_FN); }
@@ -335,7 +351,31 @@ function computeAssocTable(prodRows, qaRows) {
     });
   }
 
-  return Object.values(assocMap).map(r => ({
+  // ── 4. Roster membership gate ───────────────────────────────
+  // Current roster (D_DIM, current function) is the ONLY population
+  // that should appear in operational dashboards.  Associates who have
+  // resigned, transferred to another tower, or are otherwise no longer
+  // in this function's D_DIM entry must not appear in KPIs or grids.
+  //
+  // Build the allowed set:
+  //   • OPR ID keys   → must exist in D_DIM with fn === CUR_FN
+  //   • 'n:name' keys → must exist in D_DIM (by name) with fn === CUR_FN
+  //     (these arise from D_PROD name-only rows for the D&I function)
+  const dimFnIds   = new Set(DIM_FN().map(d => d.id).filter(Boolean));
+  const dimFnNames = new Set(DIM_FN().map(d => d.n).filter(Boolean));
+
+  const filtered = {};
+  Object.entries(assocMap).forEach(([key, row]) => {
+    if (key.startsWith('n:')) {
+      // Name-keyed entry: allow only if the name is in the current-fn roster
+      if (dimFnNames.has(row.name)) filtered[key] = row;
+    } else {
+      // OPR-ID-keyed entry: allow only if the ID is in the current-fn roster
+      if (dimFnIds.has(key)) filtered[key] = row;
+    }
+  });
+
+  return Object.values(filtered).map(r => ({
     ...r,
     variance: r.act == null ? null : r.act - (r.tgt || 0),
     prodPct:  (r.tgt || 0) > 0 ? r.act / r.tgt : null,
