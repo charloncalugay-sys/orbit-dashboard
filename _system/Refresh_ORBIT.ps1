@@ -221,10 +221,10 @@ Log ("    Rows: " + $ptP.TableRange1.Rows.Count) Gray
 # PT-QA
 Log "  Building PT_QA..." Gray
 $ptQ = New-PT 1 9 "PT_QA"
-F $ptQ "[Fact_QA].[Manager]"         $xlRow
-F $ptQ "[Fact_QA].[US Domain ID]"    $xlRow
-F $ptQ "[Fact_QA].[Associate]"       $xlRow
-F $ptQ "[Fact_QA].[Process Date]"    $xlRow
+F $ptQ "[Fact_QA_AllFunctions].[Manager]"         $xlRow
+F $ptQ "[Fact_QA_AllFunctions].[US Domain ID]"    $xlRow
+F $ptQ "[Fact_QA_AllFunctions].[Associate]"       $xlRow
+F $ptQ "[Fact_QA_AllFunctions].[Process Date]"    $xlRow
 F $ptQ "[Measures].[QA Audit Count]" $xlData
 F $ptQ "[Measures].[Avg QA Score]"   $xlData
 Log ("    Rows: " + $ptQ.TableRange1.Rows.Count) Gray

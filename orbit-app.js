@@ -121,10 +121,16 @@ function normName(s) { return (s || '').trim().toLowerCase().replace(/\s+/g, ' '
   });
 })();
 function fnOf(r) {
+  // 1. Pre-attached fn field (set by enrich_data.py via OPR ID → roster join)
+  //    Most reliable — covers all roster-matched D_QA rows without any lookup.
+  if (r.fn) return r.fn;
   if (typeof D_FN === 'undefined' || !D_FN.byId) return CUR_FN;   // legacy data: unscoped
+  // 2. OPR ID → D_FN.byId (runtime fallback for rows not yet enriched)
   if (r.id && D_FN.byId[r.id]) return D_FN.byId[r.id];
+  // 3. Exact roster name → D_FN.byName
   const nm = normName(r.a || r.n || '');
   if (FN_NAME_IDX[nm]) return FN_NAME_IDX[nm];
+  // 4. Unique last-name + first-token match
   const cand = FN_LAST_IDX[nm.split(',')[0]];
   if (cand && cand.length === 1) {
     const tok  = (nm.split(',')[1] || '').trim().split(' ')[0];
@@ -237,11 +243,16 @@ function computeAssocTable(prodRows, qaRows) {
     assocMap[name] = { name, manager, act, tgt, qaCnt: 0, qaScr: 0 };
   });
 
-  // Merge QA data — resolve domain ID → associate name via D_ASSOC lookup
+  // Merge QA data.
+  // D_QA[a] is now the roster-authoritative name for all OPR-ID-matched rows
+  // (set by enrich_data.py).  idToName is kept as a last-resort fallback for
+  // the small set of unmatched IDs whose 'a' field is a raw QA-system string.
   const qaByID = groupBy(qaRows, 'id');
   Object.entries(qaByID).forEach(([id, rows]) => {
-    // Resolve name: D_ASSOC lookup first, fallback to D_QA[a], fallback to id
-    const name = idToName[id] || rows[0].a || id;
+    // Name resolution: D_QA[a] is authoritative when the row was roster-matched
+    // (fn !== 'un'); fall back to idToName then id for unclassified rows.
+    const isMatched = rows[0].fn && rows[0].fn !== 'un';
+    const name = isMatched ? (rows[0].a || id) : (idToName[id] || rows[0].a || id);
     if (!name) return;
     const cnt  = rows.reduce((s, r) => s + (r.cnt || 0), 0);
     const wScr = rows.reduce((s, r) => s + (r.cnt || 0) * (r.scr || 0), 0);
