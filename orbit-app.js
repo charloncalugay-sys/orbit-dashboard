@@ -139,12 +139,20 @@ function fnOf(r) {
   }
   return 'un';
 }
-// Production rows carry no function tag — the productivity extract IS the
-// DI Consolidated tracker, i.e. Disputes & Intakes work by definition.
-// Output by loaned associates belongs to the work performed (D&I), never
-// to the employee's current roster function.
+// Production rows:
+//   D_PROD     — Disputes & Intakes only (existing authoritative source).
+//   D_PROD_EXT — All other Payment Integrity functions, built from data_prod.xlsx.
+//                Each row carries an explicit fn field matching D_DIM slugs.
+// P() is the single access point for production data throughout the app —
+// it returns the correct slice for whatever CUR_FN is active, ensuring all
+// downstream consumers (filterProd, computeKPIs, computeAssocTable, etc.)
+// work identically for every function without modification.
 const PROD_FN = 'disputes-intakes';
-function P()    { return CUR_FN === PROD_FN ? D_PROD : []; }
+function P() {
+  if (CUR_FN === PROD_FN) return D_PROD;
+  if (typeof D_PROD_EXT === 'undefined') return [];
+  return D_PROD_EXT.filter(r => r.fn === CUR_FN);
+}
 function Q()    { return D_QA.filter(r => fnOf(r) === CUR_FN); }
 function MGRS() {
   const s = [...new Set([...P(), ...Q()].map(r => r.m))].filter(Boolean).sort();
