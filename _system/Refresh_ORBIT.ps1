@@ -31,7 +31,7 @@
 #       prod_raw.csv, qa_raw.csv, assoc_raw.csv (gitignored)
 # ============================================================
 
-# ── SOURCE OF TRUTH — Folder A ──────────────────────────────────────────────
+# ── SOURCE OF TRUTH  -  Folder A ──────────────────────────────────────────────
 # The ONLY place Refresh_ORBIT may run. Folder B (SharePoint team-site sync
 # under T-Payment Integrity\Cha\ORBIT) is a read-only mirror that receives
 # published artifacts via git pull after every successful push (see STEP 5).
@@ -41,7 +41,7 @@ $DASH_DIR  = "C:\Users\AL70683\OneDrive - Elevance Health\IGNITE PROJECTS\ORBIT\
 $SYS_DIR   = "$DASH_DIR\_system"   # backend/admin files - not exposed to end users
 $HTML_FILE = "$DASH_DIR\ORBIT.html"
 
-# Mirror clone (Folder B) — pulled after each push; NEVER refreshed locally.
+# Mirror clone (Folder B)  -  pulled after each push; NEVER refreshed locally.
 $MIRROR_ORBIT = "C:\Users\AL70683\Elevance Health\T-Payment Integrity 2025 - 2026 - IGNITE\Cha\ORBIT"
 $MIRROR_DASH  = "$MIRROR_ORBIT\ORBIT DASH"
 $MIRROR_ROOT_FILES = @(
@@ -127,7 +127,7 @@ function EscJ($s) {
 }
 
 # ════════════════════════════════════════════════════════════════
-# STEP 0 — Timestamped backup of application files
+# STEP 0  -  Timestamped backup of application files
 # This script ONLY ever writes: orbit-data.js, prod_raw.csv,
 # qa_raw.csv, assoc_raw.csv. Application files (ORBIT.html,
 # orbit-app.js, orbit.css) are NEVER written or overwritten.
@@ -149,7 +149,7 @@ foreach ($f in $APP_FILES) {
     }
 }
 
-# Record app-file fingerprints — verified again in STEP 4 to prove
+# Record app-file fingerprints  -  verified again in STEP 4 to prove
 # the refresh only touched data files.
 $appHashBefore = @{}
 foreach ($f in $APP_FILES) {
@@ -159,7 +159,7 @@ foreach ($f in $APP_FILES) {
 Log "  Application files backed up to _system\BACKUP\$(Split-Path $backupDir -Leaf)" Green
 
 # ════════════════════════════════════════════════════════════════
-# STEP 1 — Open workbook and RefreshAll (data model + Power Query)
+# STEP 1  -  Open workbook and RefreshAll (data model + Power Query)
 # ════════════════════════════════════════════════════════════════
 Log "STEP 1: Opening Excel and refreshing data model..." Cyan
 
@@ -212,7 +212,7 @@ do {
 
 $refreshDur = [Math]::Round(($T_REFRESH_START - (Get-Date)).TotalSeconds * -1, 1)
 if ($pollSec -ge $maxPollSec) {
-    Log "  [WARN] RefreshAll poll timed out at ${maxPollSec}s — connections may still be loading." Yellow
+    Log "  [WARN] RefreshAll poll timed out at ${maxPollSec}s  -  connections may still be loading." Yellow
 } else {
     Log ("  All connections finished. Refresh duration: ${refreshDur}s") Green
 }
@@ -226,7 +226,7 @@ Mark-Time "Data model settle"
 Log "  Data model refresh complete. $(Elapsed)" Green
 
 # ════════════════════════════════════════════════════════════════
-# STEP 2 — Build DATA_EXTRACT PivotTables and export CSVs
+# STEP 2  -  Build DATA_EXTRACT PivotTables and export CSVs
 # ════════════════════════════════════════════════════════════════
 Log "STEP 2: Building DATA_EXTRACT PivotTables..." Cyan
 
@@ -379,7 +379,7 @@ Mark-Time "Excel close + GC"
 Log "  Excel closed. $(Elapsed)" Green
 
 # ════════════════════════════════════════════════════════════════
-# STEP 2.5 — Export leadership roster -> orbit-auth.js
+# STEP 2.5  -  Export leadership roster -> orbit-auth.js
 # ORBIT_Leadership.xlsx is the single source of truth for
 # Leadership Portal authorization (DOMAIN = security key).
 # ════════════════════════════════════════════════════════════════
@@ -388,7 +388,7 @@ Log "STEP 2.5: Exporting leadership roster..." Cyan
 Mark-Time "Leadership export (orbit-auth.js)"
 
 # ════════════════════════════════════════════════════════════════
-# STEP 3 — Parse CSVs and rebuild orbit-data.js
+# STEP 3  -  Parse CSVs and rebuild orbit-data.js
 # ════════════════════════════════════════════════════════════════
 Log "STEP 3: Rebuilding orbit-data.js..." Cyan
 
@@ -711,7 +711,7 @@ if ($LASTEXITCODE -eq 0) {
     Log "  D_QA enrichment complete." Green
 } else {
     foreach ($line in $pyOut) { Log ("  [WARN] enrich: " + $line) Yellow }
-    Log "  [WARN] enrich_data.py exited $LASTEXITCODE — orbit-data.js may be unenriched." Yellow
+    Log "  [WARN] enrich_data.py exited $LASTEXITCODE  -  orbit-data.js may be unenriched." Yellow
 }
 Mark-Time "enrich_data.py (roster join)"
 
@@ -721,11 +721,11 @@ Log ("  orbit-data.js: " + [Math]::Round($newSize/1KB,1) + " KB") Green
 Log ("  D_PROD rows: $prevRows -> $newRows  (delta: +$($newRows - $prevRows))") $(if(($newRows-$prevRows) -ge 0){"Green"}else{"Yellow"})
 
 # ════════════════════════════════════════════════════════════════
-# STEP 4 — Verify ORBIT DASH deployment folder
+# STEP 4  -  Verify ORBIT DASH deployment folder
 # ════════════════════════════════════════════════════════════════
 Log "STEP 4: Verifying deployment folder..." Cyan
 
-# All files are written directly to ORBIT DASH — no copy needed.
+# All files are written directly to ORBIT DASH  -  no copy needed.
 # Just verify all required runtime files are present.
 $required = @(
     "ORBIT.html","orbit.css","orbit-app.js","orbit-data.js","chart.umd.min.js",
@@ -768,16 +768,16 @@ if ($appTouched.Count -eq 0) {
 }
 
 # ════════════════════════════════════════════════════════════════
-# STEP 5 — Git commit + push -> GitHub Pages auto-publishes
+# STEP 5  -  Git commit + push -> GitHub Pages auto-publishes
 #
 # Stages ALL tracked deployment files that have changed:
 #   orbit-data.js   orbit-auth.js          (generated on every refresh)
 #   ORBIT.html      orbit-app.js  orbit.css (committed only when edited)
 #
 # Commit message reflects what actually changed:
-#   "data: refresh …"            — data files only
-#   "data + code: refresh …"     — data files + one or more app files
-#   "code: …"                    — app files only (manual push scenario)
+#   "data: refresh ..."             -  data files only
+#   "data + code: refresh ..."      -  data files + one or more app files
+#   "code: ..."                     -  app files only (manual push scenario)
 #
 # If nothing has changed since the last commit, step is skipped silently.
 # ════════════════════════════════════════════════════════════════
@@ -840,7 +840,7 @@ if (-not (Test-Path $GIT)) {
 
                 # ── STEP 5b: mirror to SharePoint copy (Folder B) ─────────────
                 # B is a read-only clone. git pull --ff-only updates it to
-                # origin/main and REFUSES if B has diverged — that refusal is
+                # origin/main and REFUSES if B has diverged  -  that refusal is
                 # the drift detector (means someone ran refresh inside B).
                 Log "  Syncing SharePoint mirror (Folder B)..." Cyan
                 if (Test-Path "$MIRROR_DASH\.git") {
@@ -928,7 +928,7 @@ if (-not (Test-Path $GIT)) {
 Mark-Time "TOTAL (before browser open)"
 Show-Profile
 
-# STEP 6 — Open / reload ORBIT.html in the default browser
+# STEP 6  -  Open / reload ORBIT.html in the default browser
 # ════════════════════════════════════════════════════════════════
 Log "STEP 6: Opening ORBIT in browser..." Cyan
 
