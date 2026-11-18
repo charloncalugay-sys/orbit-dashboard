@@ -8,7 +8,7 @@
 #   2.5. Export leadership roster -> orbit-auth.js
 #   3. Rebuild orbit-data.js
 #   4. Verify deployment folder + confirm app files untouched
-#   5. Git commit + push -> Vercel deploys orbit-two-silk.vercel.app
+#   5. Git commit + push -> Vercel deploys orbit-dashboard-pi.vercel.app
 #      5b. git pull --ff-only syncs the SharePoint mirror clone (Folder B)
 #      5c. optional Vercel deploy-hook + version.json freshness poll
 #   6. Open (or reload) the production URL in the default browser
@@ -64,8 +64,8 @@ $GIT = "C:\Users\AL70683\AppData\Local\Programs\Git\bin\git.exe"
 
 # ── Canonical live URL ────────────────────────────────────────────────────────
 # Official production endpoint (Vercel).
-$ORBIT_URL   = "https://orbit-two-silk.vercel.app/ORBIT.html"
-$ORBIT_BASE  = "https://orbit-two-silk.vercel.app"
+$ORBIT_URL   = "https://orbit-dashboard-pi.vercel.app/ORBIT.html"
+$ORBIT_BASE  = "https://orbit-dashboard-pi.vercel.app"
 # GitHub Pages remains live as an automatic fallback mirror.
 $PAGES_URL   = "https://charloncalugay-sys.github.io/orbit-dashboard/ORBIT.html"
 #
