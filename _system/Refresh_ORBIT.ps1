@@ -803,6 +803,25 @@ if ($LASTEXITCODE -eq 0) {
 }
 Mark-Time "ingest_data_prod.py (D_PROD_EXT + badges)"
 
+# =================================================================
+# STEP 3c  -  Daily production increment (ORBIT DAILY PROD VIRT)
+# =================================================================
+# ingest_data_daily.py appends ONLY rows newer than the D_PROD_EXT
+# watermark from Sheet1 of each xlsx in the daily landing folder.
+# Immutable archive: historical rows are never rewritten or
+# re-processed.  Dedup key = (OPR ID, Shift Date, Function).
+Log "STEP 3c: Appending new daily production rows..." Cyan
+$dailyOut = & python -X utf8 "$SYS_DIR\ingest_data_daily.py" 2>&1
+if ($LASTEXITCODE -eq 0) {
+    foreach ($line in $dailyOut) { Log ("    " + $line) Gray }
+    Log "  Daily production increment complete." Green
+} else {
+    foreach ($line in $dailyOut) { Log ("  [WARN] daily: " + $line) Yellow }
+    Log "  [WARN] ingest_data_daily.py exited $LASTEXITCODE  -  D_PROD_EXT may be missing newest days." Yellow
+}
+Mark-Time "ingest_data_daily.py (daily prod append)"
+
+
 
 $newSize = (Get-Item "$DASH_DIR\orbit-data.js").Length
 $newRows = $prodRows.Count
