@@ -13,7 +13,16 @@
 (() => {
 'use strict';
 
-const REST     = SUPA.URL.replace(/\/$/, '') + '/rest/v1';
+/* Route through the same-origin Vercel rewrite (/sb/* → supabase.co/rest/v1/*)
+   when the config points at supabase.co — corporate DNS does not resolve
+   *.supabase.co on this network, but *.vercel.app is reachable. Outside
+   Vercel (e.g. local file:// or a host without the rewrite), fall back to
+   the direct Supabase URL. */
+const REST = (() => {
+  const isVercel = /\.vercel\.app$/.test(location.hostname);
+  const isSbco   = /supabase\.co$/.test(SUPA.URL.replace(/\/$/, '').split('//')[1] || '');
+  return isVercel && isSbco ? '/sb' : SUPA.URL.replace(/\/$/, '') + '/rest/v1';
+})();
 const TOK_KEY  = 'orbit.sb_token';
 
 const getTok = () => { try { return localStorage.getItem(TOK_KEY) || ''; } catch { return ''; } };
