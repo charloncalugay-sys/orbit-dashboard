@@ -2315,58 +2315,104 @@ document.addEventListener('DOMContentLoaded', ORBIT_TT.init);
 
 
 /* ============================================================
-   AUTHORIZATION — pluggable identity provider
-   Phase 1 : domain entry validated against D_LEADERSHIP
-             (generated from ORBIT_Leadership.xlsx — source of truth).
-   Future  : replace identify() with Microsoft Entra ID / MSAL
-             token claims or SharePoint group membership — the rest
-             of the portal only ever calls AUTH.role() / AUTH.user().
+   AUTHORIZATION — Supabase-backed identity (mirrors TEMPUS).
+   Sign-in goes through ORBIT_SVC (orbit-auth-svc.js) RPC calls:
+     orbit_login / orbit_session / orbit_logout / orbit_setup_password
+   Session = bearer token in localStorage ('orbit.sb_token'), validated
+   server-side. Passwords are per-user bcrypt hashes in orbit_directory;
+   first-time leaders bootstrap with a team passcode, then set their own.
+   The rest of the portal only ever calls AUTH.role() / AUTH.user().
    ============================================================ */
 const AUTH = (() => {
-  const STORE_KEY = 'orbit_auth_domain';
+  let _profile = null;          // {domain, am, role, email, manager} — set on successful auth
+  const _readyCallbacks = [];
+  let _ready = null;            // Promise — resolves after stored-token check
 
-  // Returns the signed-in domain ID (uppercase), or ''.
-  function identify() {
-    return (localStorage.getItem(STORE_KEY) || '').trim().toUpperCase();
+  /* Map an RPC profile into the D_LEADERSHIP record shape the rest of
+     the app expects ({am, domain, role, email, manager}). */
+  function _toUser(p) {
+    if (!p) return null;
+    return { domain: p.id, am: p.name, role: p.role,
+             email: p.email || '', manager: p.manager || '' };
   }
 
+  function identify() { return _profile ? _profile.domain : ''; }
+  function user()     { return _profile; }
+  function role()     { const u = user(); return u ? u.role : null; }   // 'admin' | 'leadership' | null
+  function canAccessPortal() { const r = role(); return r === 'admin' || r === 'leadership'; }
+
+  // Local directory lookup retained for display-only use (drafts, notes).
   function lookup(domain) {
     if (!domain || typeof D_LEADERSHIP === 'undefined') return null;
     const d = domain.trim().toUpperCase();
     return D_LEADERSHIP.find(r => (r.domain || '').toUpperCase() === d) || null;
   }
 
-  function user() { return lookup(identify()); }
-  function role() { const u = user(); return u ? u.role : null; }   // 'admin' | 'leadership' | null
-  function canAccessPortal() { const r = role(); return r === 'admin' || r === 'leadership'; }
-
-  // ── Password validation ────────────────────────────────────────────────────
-  // Reads from window.ORBIT_CONFIG (set in ORBIT.html <head>).
-  // Admins may have a separate adminPassword; if left blank they use leadershipPassword.
-  function _expectedPassword(userRecord) {
-    const cfg = window.ORBIT_CONFIG || {};
-    const leaderPass = (cfg.leadershipPassword || '').trim();
-    const adminPass  = (cfg.adminPassword      || '').trim();
-    if (userRecord && userRecord.role === 'admin' && adminPass) return adminPass;
-    return leaderPass;
-  }
-
-  // Returns the user record on success, or null on failure.
-  // Reason string returned as second element: 'domain' | 'password' | null.
-  function signIn(domain, password) {
-    const u = lookup(domain);
-    if (!u) return { user: null, reason: 'domain' };
-    const expected = _expectedPassword(u);
-    if (expected && (password || '').trim() !== expected) {
-      return { user: null, reason: 'password' };
+  /* Async sign-in. Resolves to
+     { user, reason: null }                        on success
+     { user: null, reason: 'domain'|'password'|'setup'|'service', needSetup?, needPasscode?, error } */
+  async function signIn(domain, password) {
+    if (typeof ORBIT_SVC === 'undefined') {
+      return { user: null, reason: 'service', error: 'Sign-in service not configured.' };
     }
-    localStorage.setItem(STORE_KEY, u.domain.toUpperCase());
-    return { user: u, reason: null };
+    const res = await ORBIT_SVC.signIn(domain, password);
+    if (res && res.ok) {
+      ORBIT_SVC.setTok(res.token);
+      _profile = _toUser(res.profile);
+      return { user: _profile, reason: null };
+    }
+    const reason = res && res.code === 'unknown_user' ? 'domain'
+                 : res && res.needSetup               ? 'setup'
+                 : res && res.needPasscode            ? 'password'
+                 : 'service';
+    return { user: null, reason, needSetup: !!(res && res.needSetup),
+             needPasscode: !!(res && res.needPasscode),
+             error: res && res.error };
   }
 
-  function signOut() { localStorage.removeItem(STORE_KEY); }
+  /* First-time password setup — team passcode + personal password.
+     Resolves like signIn. */
+  async function setupPassword(domain, bootstrap, newPassword) {
+    if (typeof ORBIT_SVC === 'undefined') {
+      return { user: null, reason: 'service', error: 'Sign-in service not configured.' };
+    }
+    const res = await ORBIT_SVC.setupPassword(domain, bootstrap, newPassword);
+    if (res && res.ok) {
+      ORBIT_SVC.setTok(res.token);
+      _profile = _toUser(res.profile);
+      return { user: _profile, reason: null };
+    }
+    return { user: null, reason: 'setup', error: res && res.error };
+  }
 
-  return { identify, lookup, user, role, canAccessPortal, signIn, signOut };
+  async function signOut() {
+    _profile = null;
+    try { await ORBIT_SVC.logout(); } catch { /* token cleared client-side regardless */ }
+  }
+
+  /* Validate any stored token once at startup. Registers a callback that
+     runs after validation either way (profile restored or cleared). */
+  function ready(cb) {
+    if (typeof cb === 'function') _readyCallbacks.push(cb);
+    if (!_ready) {
+      _ready = (async () => {
+        try {
+          if (typeof ORBIT_SVC !== 'undefined' && ORBIT_SVC.getTok()) {
+            const res = await ORBIT_SVC.session();
+            if (res && res.ok) _profile = _toUser(res.profile);
+            else ORBIT_SVC.setTok('');
+          }
+        } catch { /* stay signed out */ }
+        _readyCallbacks.forEach(fn => { try { fn(); } catch {} });
+        _readyCallbacks.length = 0;
+        return _profile;
+      })();
+    }
+    return _ready;
+  }
+
+  return { identify, lookup, user, role, canAccessPortal,
+           signIn, setupPassword, signOut, ready };
 })();
 
 
@@ -3758,12 +3804,31 @@ Powered by Payment Integrity IGNITE
     const errEl     = document.getElementById('orbit-auth-error');
     const btnGo     = document.getElementById('orbit-auth-submit');
     const btnCancel = document.getElementById('orbit-auth-cancel');
+    const setupWrap = document.getElementById('orbit-auth-setup');
+    const bootIn    = document.getElementById('orbit-auth-bootstrap');
+    const newIn     = document.getElementById('orbit-auth-newpass');
+    const newIn2    = document.getElementById('orbit-auth-newpass2');
+    const subEl     = document.getElementById('orbit-auth-sub');
+
+    const SUB_DEFAULT = subEl ? subEl.textContent : '';
+    const showSetup = (on) => {
+      if (!setupWrap) return;
+      setupWrap.classList.toggle('is-hidden', !on);
+      passIn.closest('.orbit-auth-modal__field')?.classList.toggle('is-hidden', on);
+      if (subEl) subEl.textContent = on
+        ? 'First sign-in for this ID — enter the team passcode and choose your password.'
+        : SUB_DEFAULT;
+    };
 
     const open = () => {
       modal.classList.remove('is-hidden');
       errEl.classList.add('is-hidden');
       domainIn.value = '';
       passIn.value   = '';
+      showSetup(false);
+      if (bootIn) bootIn.value = '';
+      if (newIn)  newIn.value  = '';
+      if (newIn2) newIn2.value = '';
       setTimeout(() => domainIn.focus(), 30);
     };
     const close = () => modal.classList.add('is-hidden');
@@ -3771,8 +3836,7 @@ Powered by Payment Integrity IGNITE
     chip.addEventListener('click', () => {
       if (AUTH.user()) {
         if (confirm(`Signed in as ${AUTH.user().am} (${AUTH.user().role}).\n\nSign out?`)) {
-          AUTH.signOut();
-          applyAccess();
+          AUTH.signOut().then(applyAccess);
         }
       } else {
         open();
@@ -3780,31 +3844,55 @@ Powered by Payment Integrity IGNITE
     });
     btnCancel.addEventListener('click', close);
     modal.addEventListener('click', e => { if (e.target === modal) close(); });
+    domainIn.addEventListener('input', () => { errEl.classList.add('is-hidden'); showSetup(false); });
 
-    const trySignIn = () => {
+    const showErr = (msg, focusEl) => {
+      errEl.textContent = msg;
+      errEl.classList.remove('is-hidden');
+      if (focusEl) focusEl.focus();
+    };
+
+    const trySignIn = async () => {
       errEl.classList.add('is-hidden');
-      const { user: u, reason } = AUTH.signIn(domainIn.value, passIn.value);
-      if (!u) {
-        errEl.textContent = reason === 'domain'
-          ? 'Domain ID not found in the ORBIT Leadership roster.'
-          : 'Incorrect password.';
-        errEl.classList.remove('is-hidden');
-        if (reason === 'password') {
-          passIn.value = '';
-          passIn.focus();
-        } else {
-          domainIn.focus();
+      const domain = domainIn.value.trim().toUpperCase();
+      if (!domain) { showErr('Enter your Domain ID.', domainIn); return; }
+      btnGo.disabled = true;
+      try {
+        // ── First-time setup path ──
+        if (setupWrap && !setupWrap.classList.contains('is-hidden')) {
+          if (newIn.value.length < 8) { showErr('Password must be at least 8 characters.', newIn); return; }
+          if (newIn.value !== newIn2.value) { showErr('Passwords do not match.', newIn2); return; }
+          const { user: u, error } = await AUTH.setupPassword(domain, bootIn.value, newIn.value);
+          if (!u) { showErr(error || 'Setup failed.', bootIn); return; }
+          close(); applyAccess();
+          document.getElementById('tab-leadership').click();
+          return;
         }
-        return;
-      }
-      close();
-      applyAccess();
-      document.getElementById('tab-leadership').click();
+        // ── Normal sign-in path ──
+        const { user: u, reason, needSetup, error } = await AUTH.signIn(domain, passIn.value);
+        if (needSetup) {
+          showSetup(true);
+          showErr('First-time sign-in — set up your personal password below.', bootIn);
+          return;
+        }
+        if (!u) {
+          showErr(reason === 'domain'
+            ? 'Domain ID not found in the ORBIT Leadership roster.'
+            : (error || 'Incorrect password.'),
+            reason === 'password' ? passIn : domainIn);
+          if (reason === 'password') passIn.value = '';
+          return;
+        }
+        close();
+        applyAccess();
+        document.getElementById('tab-leadership').click();
+      } finally { btnGo.disabled = false; }
     };
     btnGo.addEventListener('click', trySignIn);
     // Tab through domain → password → submit on Enter
     passIn.addEventListener('keydown', e => { if (e.key === 'Enter') trySignIn(); });
     domainIn.addEventListener('keydown', e => { if (e.key === 'Enter') passIn.focus(); });
+    [bootIn, newIn, newIn2].forEach(el => el && el.addEventListener('keydown', e => { if (e.key === 'Enter') trySignIn(); }));
     document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
   }
 
@@ -3818,7 +3906,8 @@ Powered by Payment Integrity IGNITE
   function init() {
     initModal();
     initSubNav();
-    applyAccess();           // restores session + shows/hides portal tab
+    applyAccess();           // signed-out render while the token check is in flight
+    AUTH.ready(applyAccess); // validates stored session, re-renders on resolution
     PAGE_NAV.register('leadership', renderAll);   // FN function-switch re-render
   }
 

@@ -8,17 +8,14 @@
   <link rel="icon" type="image/png" href="assets/logos/ORBIT.png" />
   <link rel="stylesheet" href="orbit.css" />
   <!-- ── ORBIT runtime configuration ─────────────────────────────────────────
-       LEADERSHIP_PASSWORD  : shared password required to access the Leadership Portal.
-                              Change this value when rotating credentials.
-                              Set ORBIT_CONFIG.leadershipPassword in orbit-auth.js to
-                              override without editing this file.
-       ADMIN_PASSWORD       : optional separate password for admin-role users.
-                              Leave blank ("") to use the same password for all roles.
+       Auth is handled by Supabase RPC (supabase-config.js + orbit-auth-svc.js):
+       per-user bcrypt passwords, team-passcode bootstrap for first sign-in.
+       The legacy shared-password config below is retired and no longer read.
   ──────────────────────────────────────────────────────────────────────────── -->
   <script>
   window.ORBIT_CONFIG = {
-    leadershipPassword: 'Ignite@Leaders2026',   // shared password for all roles including admin
-    adminPassword:      ''                      // blank — admins use the same password above
+    leadershipPassword: '',   // retired — Supabase per-user passwords replaced this
+    adminPassword:      ''
   };
   </script>
 </head>
@@ -1370,13 +1367,26 @@
 <div class="orbit-auth-modal is-hidden" id="orbit-auth-modal" role="dialog" aria-modal="true" aria-labelledby="orbit-auth-title">
   <div class="orbit-auth-modal__card">
     <div class="orbit-auth-modal__title" id="orbit-auth-title">Leadership Login</div>
-    <div class="orbit-auth-modal__sub">Enter your Domain ID and the shared leadership password.</div>
+    <div class="orbit-auth-modal__sub" id="orbit-auth-sub">Enter your Domain ID and password.</div>
     <label class="orbit-auth-modal__label" for="orbit-auth-domain">Domain ID</label>
     <input class="orbit-auth-modal__input" id="orbit-auth-domain" type="text"
            placeholder="e.g. AL12345" autocomplete="off" spellcheck="false" />
-    <label class="orbit-auth-modal__label" for="orbit-auth-password">Password</label>
-    <input class="orbit-auth-modal__input" id="orbit-auth-password" type="password"
-           placeholder="Leadership password" autocomplete="current-password" />
+    <div class="orbit-auth-modal__field" id="orbit-auth-pass-field">
+      <label class="orbit-auth-modal__label" for="orbit-auth-password">Password</label>
+      <input class="orbit-auth-modal__input" id="orbit-auth-password" type="password"
+             placeholder="Your password" autocomplete="current-password" />
+    </div>
+    <div id="orbit-auth-setup" class="is-hidden">
+      <label class="orbit-auth-modal__label" for="orbit-auth-bootstrap">Team Passcode</label>
+      <input class="orbit-auth-modal__input" id="orbit-auth-bootstrap" type="password"
+             placeholder="Onboarding team passcode" autocomplete="off" />
+      <label class="orbit-auth-modal__label" for="orbit-auth-newpass">New Password</label>
+      <input class="orbit-auth-modal__input" id="orbit-auth-newpass" type="password"
+             placeholder="Choose a password (min 8 chars)" autocomplete="new-password" />
+      <label class="orbit-auth-modal__label" for="orbit-auth-newpass2">Confirm Password</label>
+      <input class="orbit-auth-modal__input" id="orbit-auth-newpass2" type="password"
+             placeholder="Re-enter password" autocomplete="new-password" />
+    </div>
     <div class="orbit-auth-modal__error is-hidden" id="orbit-auth-error"></div>
     <div class="orbit-auth-modal__actions">
       <button class="orbit-btn orbit-btn--ghost" id="orbit-auth-cancel" type="button">Cancel</button>
@@ -1469,6 +1479,9 @@
 
 <!-- Leadership roster — generated from ORBIT_Leadership.xlsx -->
 <script src="orbit-auth.js"></script>
+<!-- Supabase auth service (sign-in backend for the Leadership Portal) -->
+<script src="supabase-config.js"></script>
+<script src="orbit-auth-svc.js"></script>
 <!-- Application logic -->
 <script src="orbit-app.js"></script>
 

@@ -1489,6 +1489,12 @@ img,svg { display: block; max-width: 100%; }
   color: var(--red-fail);
 }
 .orbit-auth-modal__error.is-hidden { display: none; }
+/* First-time setup block + password field wrapper */
+#orbit-auth-setup.is-hidden,
+#orbit-auth-pass-field.is-hidden { display: none; }
+#orbit-auth-bootstrap,
+#orbit-auth-newpass,
+#orbit-auth-newpass2 { text-transform: none; letter-spacing: normal; }
 .orbit-auth-modal__actions {
   margin-top: 18px;
   display: flex; justify-content: flex-end; gap: 8px;
