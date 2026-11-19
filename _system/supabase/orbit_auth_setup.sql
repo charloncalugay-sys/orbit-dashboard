@@ -54,7 +54,7 @@ on conflict (key) do nothing;
 -- needSetup    -> first-time leader: no password_hash yet
 -- needPasscode -> password wrong or missing
 create or replace function orbit_login(p_domain text, p_passcode text default null)
-returns json language plpgsql security definer set search_path = public as $$
+returns json language plpgsql security definer set search_path = public, extensions as $$
 declare
   d   orbit_directory%rowtype;
   tok text;
@@ -86,7 +86,7 @@ end $$;
 -- passcode, then set a personal password and get a session.
 create or replace function orbit_setup_password(p_domain text, p_bootstrap text,
         p_new_password text)
-returns json language plpgsql security definer set search_path = public as $$
+returns json language plpgsql security definer set search_path = public, extensions as $$
 declare
   d orbit_directory%rowtype; shared text; tok text;
 begin
@@ -117,7 +117,7 @@ end $$;
 
 -- Validate a bearer token -> session profile.
 create or replace function orbit_session(p_token text)
-returns json language plpgsql security definer set search_path = public as $$
+returns json language plpgsql security definer set search_path = public, extensions as $$
 declare s orbit_sessions%rowtype; d orbit_directory%rowtype;
 begin
   select * into s from orbit_sessions where token = p_token and expires_at > now();
@@ -133,7 +133,7 @@ begin
 end $$;
 
 create or replace function orbit_logout(p_token text)
-returns json language plpgsql security definer set search_path = public as $$
+returns json language plpgsql security definer set search_path = public, extensions as $$
 begin
   delete from orbit_sessions where token = p_token;
   return json_build_object('ok', true);
@@ -141,7 +141,7 @@ end $$;
 
 -- Change own password (requires valid session).
 create or replace function orbit_change_password(p_token text, p_current text, p_new text)
-returns json language plpgsql security definer set search_path = public as $$
+returns json language plpgsql security definer set search_path = public, extensions as $$
 declare s orbit_sessions%rowtype; d orbit_directory%rowtype;
 begin
   select * into s from orbit_sessions where token = p_token and expires_at > now();
@@ -162,7 +162,7 @@ end $$;
 -- ADMIN/MAINTENANCE ONLY - not granted to anon; run via SQL editor
 -- or service key.
 create or replace function orbit_set_passcode(p_new_passcode text)
-returns json language plpgsql security definer set search_path = public as $$
+returns json language plpgsql security definer set search_path = public, extensions as $$
 begin
   if p_new_passcode is null or length(p_new_passcode) < 12 then
     return json_build_object('ok', false, 'error', 'Passcode must be >=12 chars.');
