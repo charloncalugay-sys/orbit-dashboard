@@ -4,6 +4,6 @@
      Project URL  : https://<project-ref>.supabase.co
      Publishable  : sb_publishable_...                                  */
 const SUPA = {
-  URL: 'https://slkjokfryygwzhnlezde.supabase.co',
+  URL: 'https://stkjokfryygwzhnhazde.supabase.co',
   KEY: 'sb_publishable_Jkdezah_0L8DC0kiSum6VQ_aCQXK_rY',
 };
