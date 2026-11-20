@@ -4004,11 +4004,20 @@ const AR = (() => {
       byAssoc[r.a].push(r);
     });
 
+    // Prefer the roster's current AM (D_DIM) over the production row's
+    // manager group — source-workbook labels go stale when associates
+    // transfer AMs (roster is the authoritative identity source).
+    const dimRows = typeof D_DIM !== 'undefined' ? D_DIM : [];
+    const amById   = new Map(dimRows.filter(d => d.id).map(d => [d.id, d.am]));
+    const amByName = new Map(dimRows.filter(d => d.n).map(d => [d.n,  d.am]));
+
     return Object.entries(byAssoc)
       .map(([a, assocRows]) => {
         const latest = assocRows.reduce((best, r) =>
           (!best || r.ym > best.ym) ? r : best, null);
-        return { a, m: latest ? (latest.m || '') : '' };
+        const rosterAm = (latest && latest.id && amById.get(latest.id))
+                      || amByName.get(a);
+        return { a, m: rosterAm || (latest ? (latest.m || '') : '') };
       })
       .sort((x, y) => x.a.localeCompare(y.a));
   }
