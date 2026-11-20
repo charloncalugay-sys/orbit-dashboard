@@ -82,5 +82,13 @@ async function changePassword(current, next) {
   return rpc('orbit_change_password', { p_token: getTok(), p_current: current, p_new: next });
 }
 
-window.ORBIT_SVC = { signIn, setupPassword, session, logout, changePassword, getTok, setTok };
+/* ── My Notes RPCs (server-side note storage, scoped by session) ── */
+async function notesList()            { return rpc('orbit_notes_list',   { p_token: getTok() }); }
+async function notesSave(note)        { return rpc('orbit_notes_save',   { p_token: getTok(), p_note: note }); }
+async function notesDelete(id)        { return rpc('orbit_notes_delete', { p_token: getTok(), p_id: id }); }
+async function notesImport(notes)     { return rpc('orbit_notes_import', { p_token: getTok(), p_notes: notes }); }
+
+window.ORBIT_SVC = { signIn, setupPassword, session, logout, changePassword,
+                     notesList, notesSave, notesDelete, notesImport,
+                     getTok, setTok };
 })();

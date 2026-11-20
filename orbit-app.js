@@ -3734,6 +3734,7 @@ Powered by Payment Integrity IGNITE
       roleBadge.textContent = u.role === 'admin' ? 'Admin Access' : 'Leadership Access';
       roleBadge.className = 'lp-hero__role lp-hero__role--' + u.role;
       renderAll();
+      NOTES.sync();   // pull this Domain's notes from the server
     } else {
       const wasVisible = !page.classList.contains('is-hidden');
       tab.classList.add('is-hidden');
@@ -3743,6 +3744,7 @@ Powered by Payment Integrity IGNITE
       chip.setAttribute('aria-label', 'Leadership sign in');
       // If the portal was somehow visible, bounce back to Overview
       if (wasVisible) document.getElementById('tab-overview').click();
+      NOTES.sync();   // signed out — clear the notes cache
     }
   }
 
@@ -4542,9 +4544,12 @@ const AR = (() => {
    MY NOTES (NOTES) MODULE
    ─────────────────────────────────────────────────────────────────────
    Purpose  : Personal leadership workspace — private per logged-in DOMAIN.
-   Storage  : localStorage key 'orbit_notes_<DOMAIN>' (JSON array).
-              Scoped per domain — users only ever see their own tasks.
-              Exported to ORBIT_Notes.csv on demand.
+   Storage  : Server-side via Supabase RPCs (orbit_notes_*), scoped by the
+              session token — notes follow the Domain ID across browsers
+              and devices. CACHE is the synchronous working copy the UI
+              renders from; localStorage key 'orbit_notes_<DOMAIN>' is
+              kept as an offline mirror / fallback when the service is
+              unreachable. Exported to ORBIT_Notes.csv on demand.
    Auth     : Requires AUTH.role() === 'admin' | 'leadership'.
    Schema   : { id, domain, task, priority, due, status, notes,
                 createdBy, createdAt, modifiedBy, modifiedAt }
@@ -4562,35 +4567,94 @@ const NOTES = (() => {
     return `${+m}/${+d}/${y}`;
   };
 
-  /* ── storage key — scoped per domain ── */
+  /* ── working state ── */
+  let CACHE  = [];        // synchronous working copy — render reads this
+  let remote = false;     // true while the Supabase service is reachable
+
+  /* ── localStorage mirror — offline fallback, scoped per domain ── */
   function storeKey() {
     const u = AUTH.user();
     return u ? `orbit_notes_${u.domain.toUpperCase()}` : null;
   }
-
-  /* ── persistence ── */
-  function load() {
+  function loadLocal() {
     const k = storeKey();
     if (!k) return [];
     try { return JSON.parse(localStorage.getItem(k) || '[]'); } catch { return []; }
   }
-  function save(tasks) {
+  function saveLocal(tasks) {
     const k = storeKey();
     if (!k) return;
     try { localStorage.setItem(k, JSON.stringify(tasks)); } catch { /* quota */ }
   }
+
+  /* ── persistence ── */
+  function load() { return CACHE; }
+  function save(tasks) {
+    CACHE = tasks;
+    saveLocal(tasks);
+  }
+  function remoteSave(note) {
+    if (!remote || typeof ORBIT_SVC === 'undefined') return;
+    ORBIT_SVC.notesSave(note).then(r => { if (!r || r.ok === false) remote = false; });
+  }
+  function remoteDelete(id) {
+    if (!remote || typeof ORBIT_SVC === 'undefined') return;
+    ORBIT_SVC.notesDelete(id).then(r => { if (!r || r.ok === false) remote = false; });
+  }
   function addTask(t) {
     const tasks = load(); tasks.push(t); save(tasks);
+    remoteSave(t);
   }
   function updateTask(id, patch) {
     const tasks = load();
     const idx   = tasks.findIndex(t => t.id === id);
     if (idx === -1) return false;
     tasks[idx] = { ...tasks[idx], ...patch };
-    save(tasks); return true;
+    save(tasks); remoteSave(tasks[idx]); return true;
   }
   function deleteTask(id) {
     save(load().filter(t => t.id !== id));
+    remoteDelete(id);
+  }
+
+  /* ── server sync ──
+     Called on sign-in, sign-out, and session restore. When reachable,
+     the server is the source of truth; local-only ids (e.g. notes made
+     in another browser before this feature existed) are imported so
+     nothing is lost. Falls back to the localStorage mirror offline. */
+  async function sync() {
+    const u = AUTH.user();
+    if (!u) {
+      CACHE = []; remote = false;
+      render();
+      return;
+    }
+    // Instant paint from the mirror while the RPC is in flight.
+    CACHE = loadLocal();
+    render();
+
+    if (typeof ORBIT_SVC === 'undefined' || !ORBIT_SVC.getTok() || !ORBIT_SVC.notesList) {
+      remote = false;
+      return;
+    }
+    const res = await ORBIT_SVC.notesList();
+    if (!res || res.ok === false) {
+      remote = false;            // offline / service unavailable / expired
+      return;
+    }
+    remote = true;
+    const server = Array.isArray(res.notes) ? res.notes : [];
+    const serverIds = new Set(server.map(t => t.id));
+    const localOnly = CACHE.filter(t => t.id && !serverIds.has(t.id));
+    if (localOnly.length) {
+      // Migrate local-only notes up to the server (one-time per browser).
+      await ORBIT_SVC.notesImport(localOnly);
+      CACHE = server.concat(localOnly);
+    } else {
+      CACHE = server;
+    }
+    saveLocal(CACHE);
+    render();
   }
 
   /* ── overdue logic ── */
@@ -4944,10 +5008,12 @@ const NOTES = (() => {
   /* ── public init ── */
   function init() {
     initControls();
+    CACHE = loadLocal();        // paint cached notes for the current domain
     render();
+    AUTH.ready(sync);           // re-sync once the stored-session check resolves
   }
 
-  return { init, render, updateBadge };
+  return { init, render, updateBadge, sync };
 })();
 
 /* ═══════════════════════════════════════════════════════════════════════
